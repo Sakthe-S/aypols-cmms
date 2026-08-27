@@ -1,0 +1,73 @@
+import prisma from '@/lib/prisma';
+import { formatDateTime } from '@/lib/utils';
+
+export const dynamic = 'force-dynamic';
+
+export default async function TransactionsPage() {
+  const transactions = await prisma.stockTransaction.findMany({
+    orderBy: { createdAt: 'desc' },
+    include: { part: true, user: true },
+    take: 50,
+  });
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold text-gray-900">Stock Ledger</h1>
+        <p className="text-sm text-gray-500">All stock movements across inventory</p>
+      </div>
+
+      <div className="card overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr>
+                <th className="table-header px-6 py-3">Date</th>
+                <th className="table-header px-6 py-3">Part</th>
+                <th className="table-header px-6 py-3">Type</th>
+                <th className="table-header px-6 py-3">Quantity</th>
+                <th className="table-header px-6 py-3">User</th>
+                <th className="table-header px-6 py-3">Reason</th>
+                <th className="table-header px-6 py-3">Reference</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {transactions.map((tx) => (
+                <tr key={tx.id} className="hover:bg-gray-50">
+                  <td className="px-6 py-3 text-gray-500">{formatDateTime(tx.createdAt)}</td>
+                  <td className="px-6 py-3">
+                    <span className="font-medium">{tx.part.partName}</span>
+                    <span className="ml-1 text-gray-500">({tx.part.partCode})</span>
+                  </td>
+                  <td className="px-6 py-3">
+                    <span className={`badge ${
+                      tx.transactionType === 'stock_in' ? 'bg-green-100 text-green-800' :
+                      tx.transactionType === 'stock_out' ? 'bg-red-100 text-red-800' :
+                      tx.transactionType === 'transfer' ? 'bg-blue-100 text-blue-800' :
+                      'bg-yellow-100 text-yellow-800'
+                    }`}>
+                      {tx.transactionType.replace('_', ' ')}
+                    </span>
+                  </td>
+                  <td className="px-6 py-3 font-semibold">
+                    {tx.transactionType === 'stock_in' ? '+' : tx.transactionType === 'stock_out' ? '-' : ''}{tx.quantity} {tx.part.unit}
+                  </td>
+                  <td className="px-6 py-3 text-gray-700">{tx.user.name}</td>
+                  <td className="px-6 py-3 text-gray-500">{tx.reason || '-'}</td>
+                  <td className="px-6 py-3 text-gray-500">{tx.referencePo || '-'}</td>
+                </tr>
+              ))}
+              {transactions.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
+                    No transactions recorded
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}

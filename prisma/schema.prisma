@@ -1,0 +1,381 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Users & Auth ───────────────────────────────────────────────
+
+model User {
+  id            Int       @id @default(autoincrement())
+  name          String
+  email         String    @unique
+  passwordHash  String    @map("password_hash")
+  role          String    // EMPLOYEE, TECHNICIAN, SUPERVISOR, STORE_ADMIN, EHS_OFFICER, ADMIN
+  trade         String?   // mechanical, electrician, etc.
+  phone         String?
+  isActive      Boolean   @default(true) @map("is_active")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  reportedTickets      MaintenanceTicket[] @relation("ReportedBy")
+  assignedTickets      MaintenanceTicket[] @relation("AssignedTo")
+  verifiedTickets      MaintenanceTicket[] @relation("VerifiedBy")
+  ticketProgressLogs   TicketProgressLog[]
+  ticketSparePartsUsed TicketSparePart[] @relation("TicketSparePartsUsed")
+  stockTransactions    StockTransaction[]
+  notifications        Notification[]
+  pmLogs               PmLog[]
+  checklistCompleted   SafetyChecklistCompletion[] @relation("ChecklistCompletedBy")
+  checklistSupervised  SafetyChecklistCompletion[] @relation("ChecklistSupervisor")
+  checklistOverridden  SafetyChecklistCompletion[] @relation("ChecklistOverrideBy")
+  trainingCompletions  TrainingCompletion[]
+
+  @@map("users")
+}
+
+// ─── Machine / Asset Master ─────────────────────────────────────
+
+model Machine {
+  id                    Int       @id @default(autoincrement())
+  machineName           String    @map("machine_name")
+  serialNumber          String?   @map("serial_number")
+  department            String?
+  location              String?
+  installationDate      DateTime? @map("installation_date")
+  manufacturer          String?
+  model                 String?
+  photoUrl              String?   @map("photo_url")
+  currentStatus         String    @default("operational") @map("current_status") // operational, down, maintenance
+  lifetimeMaintenanceCost Float  @default(0) @map("lifetime_maintenance_cost")
+  lastServiceDate       DateTime? @map("last_service_date")
+  nextPmDate            DateTime? @map("next_pm_date")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  tickets               MaintenanceTicket[]
+  pmSchedules           PmSchedule[]
+  amcRecords            AmcRecord[]
+  calibrationRecords    CalibrationRecord[]
+
+  @@map("machines")
+}
+
+// ─── Maintenance Tickets ────────────────────────────────────────
+
+model MaintenanceTicket {
+  id                Int       @id @default(autoincrement())
+  ticketNumber      String    @unique @map("ticket_number") // TKT-YYYY-NNN
+  machineId         Int       @map("machine_id")
+  reportedById      Int       @map("reported_by_id")
+  reportedDate      DateTime  @default(now()) @map("reported_date")
+  priority          String    @default("medium") // low, medium, high, critical
+  category          String?   // hydraulic, electrical, mechanical, etc.
+  issueDescription  String    @map("issue_description")
+  photoUrls         String?   @map("photo_urls") // JSON array of URLs
+  status            String    @default("open") // open, allocated, in_progress, completed, verified, closed
+  assignedToId      Int?      @map("assigned_to_id")
+  allocatedDate     DateTime? @map("allocated_date")
+  startTime         DateTime? @map("start_time")
+  endTime           DateTime? @map("end_time")
+  downtimeMinutes   Int?      @map("downtime_minutes")
+  diagnosis         String?
+  rootCause         String?   @map("rootcause")
+  actionsTaken      String?   @map("actions_taken")
+  laborHours        Float?    @map("labor_hours")
+  laborRatePerHour  Float?    @map("labor_rate_per_hour")
+  laborCost         Float?    @map("labor_cost")
+  contractorCharges Float?    @map("contractor_charges")
+  otherCosts        Float?    @map("other_costs")
+  totalRepairCost   Float?    @map("total_repair_cost")
+  partsCost         Float?    @map("parts_cost")
+  closureOutcome    String?   @map("closure_outcome") // closed, pending, carry_forward, complaint
+  closureVerifiedById Int?    @map("closure_verified_by_id")
+  closureDate       DateTime? @map("closure_date")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  machine           Machine        @relation(fields: [machineId], references: [id])
+  reportedBy        User           @relation("ReportedBy", fields: [reportedById], references: [id])
+  assignedTo        User?          @relation("AssignedTo", fields: [assignedToId], references: [id])
+  closureVerifiedBy User?          @relation("VerifiedBy", fields: [closureVerifiedById], references: [id])
+  progressLogs      TicketProgressLog[]
+  sparePartsUsed    TicketSparePart[]
+  pmLogs            PmLog[]
+
+  @@map("maintenance_tickets")
+}
+
+model TicketProgressLog {
+  id          Int      @id @default(autoincrement())
+  ticketId    Int      @map("ticket_id")
+  userId      Int      @map("user_id")
+  notes       String
+  logType     String   @default("note") // note, parts_request, status_change
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  ticket      MaintenanceTicket @relation(fields: [ticketId], references: [id])
+  user        User              @relation(fields: [userId], references: [id])
+
+  @@map("ticket_progress_logs")
+}
+
+// ─── Spare Parts Inventory ──────────────────────────────────────
+
+model SparePart {
+  id            Int       @id @default(autoincrement())
+  partCode      String    @unique @map("part_code")
+  partName      String    @map("part_name")
+  category      String?
+  unit          String    // pcs, kg, litre, meter, etc.
+  purchaseRate  Float     @default(0) @map("purchase_rate")
+  currentQty    Float     @default(0) @map("current_qty")
+  minThreshold  Float     @default(0) @map("min_threshold")
+  reorderQty    Float     @default(0) @map("reorder_qty")
+  storageRoom   String?   @map("storage_room")
+  rackBin       String?   @map("rack_bin")
+  supplier      String?
+  photoUrl      String?   @map("photo_url")
+  notes         String?
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  stockTransactions StockTransaction[]
+  ticketUsage       TicketSparePart[]
+
+  @@map("spare_parts")
+}
+
+model StockTransaction {
+  id              Int      @id @default(autoincrement())
+  partId          Int      @map("part_id")
+  transactionType String   @map("transaction_type") // stock_in, stock_out, transfer, adjustment
+  quantity        Float
+  referenceTicketId Int?   @map("reference_ticket_id")
+  referencePo     String?  @map("reference_po")
+  reason          String?
+  receiver        String?
+  fromLocation    String?  @map("from_location")
+  toLocation      String?  @map("to_location")
+  userId          Int      @map("user_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  part            SparePart @relation(fields: [partId], references: [id])
+  user            User      @relation(fields: [userId], references: [id])
+
+  @@map("stock_transactions")
+}
+
+model TicketSparePart {
+  id          Int     @id @default(autoincrement())
+  ticketId    Int     @map("ticket_id")
+  partId      Int     @map("part_id")
+  qty         Float
+  unitPrice   Float   @map("unit_price")
+  totalCost   Float   @map("total_cost")
+  userId      Int?    @map("user_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  ticket      MaintenanceTicket @relation(fields: [ticketId], references: [id])
+  part        SparePart         @relation(fields: [partId], references: [id])
+  user        User?             @relation("TicketSparePartsUsed", fields: [userId], references: [id])
+
+  @@map("ticket_spare_parts")
+}
+
+// ─── Preventive Maintenance ─────────────────────────────────────
+
+model PmSchedule {
+  id              Int       @id @default(autoincrement())
+  machineId       Int       @map("machine_id")
+  taskName        String    @map("task_name")
+  frequency       String    // daily, weekly, monthly, quarterly, half_yearly, yearly
+  description     String?
+  checklistItems  String?   @map("checklist_items") // JSON array of checklist items
+  leadDays        Int       @default(7) @map("lead_days") // reminder days before due
+  isActive        Boolean   @default(true) @map("is_active")
+  nextDueDate     DateTime? @map("next_due_date")
+  lastCompletedAt DateTime? @map("last_completed_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  machine         Machine   @relation(fields: [machineId], references: [id])
+  logs            PmLog[]
+
+  @@map("pm_schedules")
+}
+
+model PmLog {
+  id              Int       @id @default(autoincrement())
+  scheduleId      Int       @map("schedule_id")
+  ticketId        Int?      @map("ticket_id")
+  completedAt     DateTime  @default(now()) @map("completed_at")
+  completedById   Int       @map("completed_by_id")
+  notes           String?
+  status          String    @default("completed") // completed, missed, skipped
+  nextDueDate     DateTime? @map("next_due_date")
+
+  schedule        PmSchedule         @relation(fields: [scheduleId], references: [id])
+  ticket          MaintenanceTicket? @relation(fields: [ticketId], references: [id])
+  completedBy     User               @relation(fields: [completedById], references: [id])
+
+  @@map("pm_logs")
+}
+
+// ─── AMC Records ────────────────────────────────────────────────
+
+model AmcRecord {
+  id              Int       @id @default(autoincrement())
+  machineId       Int       @map("machine_id")
+  contractNumber  String?   @map("contract_number")
+  vendorName      String    @map("vendor_name")
+  startDate       DateTime  @map("start_date")
+  endDate         DateTime  @map("end_date")
+  frequency       String?   // monthly, quarterly, yearly
+  cost            Float?
+  description     String?
+  isActive        Boolean   @default(true) @map("is_active")
+  nextServiceDate DateTime? @map("next_service_date")
+  leadDays        Int       @default(14) @map("lead_days")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  machine         Machine   @relation(fields: [machineId], references: [id])
+
+  @@map("amc_records")
+}
+
+// ─── Calibration Records ────────────────────────────────────────
+
+model CalibrationRecord {
+  id              Int       @id @default(autoincrement())
+  machineId       Int       @map("machine_id")
+  instrumentName  String    @map("instrument_name")
+  calibrationType String    @map("calibration_type") // internal, external
+  frequency       String    // half_yearly, yearly
+  lastCalibration DateTime? @map("last_calibration")
+  nextDueDate     DateTime? @map("next_due_date")
+  certificate     String?   // certificate file path
+  labName         String?   @map("lab_name")
+  cost            Float?
+  leadDays        Int       @default(30) @map("lead_days")
+  isActive        Boolean   @default(true) @map("is_active")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  machine         Machine   @relation(fields: [machineId], references: [id])
+
+  @@map("calibration_records")
+}
+
+// ─── EHS - Safety Checklists ────────────────────────────────────
+
+model SafetyChecklist {
+  id              Int       @id @default(autoincrement())
+  name            String
+  jobType         String    @map("job_type") // hydraulic, electrical, welding, etc.
+  checklistItems  String    @map("checklist_items") // JSON array of check items
+  isActive        Boolean   @default(true) @map("is_active")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  completions     SafetyChecklistCompletion[]
+
+  @@map("safety_checklists")
+}
+
+model SafetyChecklistCompletion {
+  id              Int       @id @default(autoincrement())
+  checklistId     Int       @map("checklist_id")
+  ticketId        Int?      @map("ticket_id")
+  completedById   Int       @map("completed_by_id")
+  supervisorId    Int?      @map("supervisor_id")
+  isApproved      Boolean   @default(false) @map("is_approved")
+  overrideById    Int?      @map("override_by_id")
+  overrideReason  String?   @map("override_reason")
+  responses       String    // JSON array of {item, checked, notes}
+  completedAt     DateTime  @default(now()) @map("completed_at")
+  approvedAt      DateTime? @map("approved_at")
+
+  checklist       SafetyChecklist @relation(fields: [checklistId], references: [id])
+  completedBy     User            @relation("ChecklistCompletedBy", fields: [completedById], references: [id])
+  supervisor      User?           @relation("ChecklistSupervisor", fields: [supervisorId], references: [id])
+  overrideBy      User?           @relation("ChecklistOverrideBy", fields: [overrideById], references: [id])
+
+  @@map("safety_checklist_completions")
+}
+
+// ─── EHS - Training & Compliance ────────────────────────────────
+
+model TrainingRecord {
+  id              Int       @id @default(autoincrement())
+  trainingName    String    @map("training_name")
+  trainingType    String    @map("training_type") // safety, fire, first_aid, equipment, compliance
+  description     String?
+  frequency       String    // monthly, quarterly, half_yearly, yearly
+  nextDueDate     DateTime? @map("next_due_date")
+  leadDays        Int       @default(30) @map("lead_days")
+  assignedToIds   String    @default("[]") @map("assigned_to_ids") // JSON array of user IDs
+  documentUrl     String?   @map("document_url")
+  isActive        Boolean   @default(true) @map("is_active")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  completions     TrainingCompletion[]
+
+  @@map("training_records")
+}
+
+model TrainingCompletion {
+  id              Int       @id @default(autoincrement())
+  trainingId      Int       @map("training_id")
+  userId          Int       @map("user_id")
+  completedAt     DateTime? @map("completed_at")
+  proofDocument   String?   @map("proof_document")
+  status          String    @default("pending") // pending, completed, overdue
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  training        TrainingRecord @relation(fields: [trainingId], references: [id])
+  user            User           @relation(fields: [userId], references: [id])
+
+  @@map("training_completions")
+}
+
+model HealthComplianceRecord {
+  id              Int       @id @default(autoincrement())
+  recordName      String    @map("record_name")
+  recordType      String    @map("record_type") // health_checkup, insurance, license, legal
+  description     String?
+  frequency       String    // yearly, biennial
+  nextDueDate     DateTime? @map("next_due_date")
+  leadDays        Int       @default(30) @map("lead_days")
+  documentUrl     String?   @map("document_url")
+  isActive        Boolean   @default(true) @map("is_active")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@map("health_compliance_records")
+}
+
+// ─── Notifications ──────────────────────────────────────────────
+
+model Notification {
+  id              Int       @id @default(autoincrement())
+  userId          Int       @map("user_id")
+  title           String
+  message         String
+  type            String    // pm_reminder, amc_reminder, calibration_reminder, ticket_assigned,
+                            // ticket_status, low_stock, training_reminder, escalation, general
+  linkUrl         String?   @map("link_url")
+  isRead          Boolean   @default(false) @map("is_read")
+  sentViaWhatsApp Boolean   @default(false) @map("sent_via_whatsapp")
+  whatsappSentAt  DateTime? @map("whatsapp_sent_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  user            User      @relation(fields: [userId], references: [id])
+
+  @@map("notifications")
+}
