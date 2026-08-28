@@ -95,7 +95,7 @@ export default async function EhsPage() {
           <BookOpen className="h-5 w-5 text-primary-600" />
           <h2 className="text-lg font-semibold text-gray-900">Training & Compliance</h2>
         </div>
-        <div className="card overflow-hidden">
+        <div className="card hidden overflow-hidden md:block">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -147,6 +147,42 @@ export default async function EhsPage() {
             </table>
           </div>
         </div>
+        <div className="space-y-3 md:hidden">
+          {trainings.map((tr) => {
+            const assigned = JSON.parse(tr.assignedToIds || '[]');
+            const completedCount = tr.completions.filter((c: any) => c.status === 'completed').length;
+            const isOverdue = tr.nextDueDate && tr.nextDueDate < now;
+            return (
+              <div key={tr.id} className="card p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-gray-900">{tr.trainingName}</p>
+                    <p className="text-xs text-gray-500">{tr.frequency}</p>
+                  </div>
+                  {isOverdue ? (
+                    <span className="badge shrink-0 bg-red-100 text-red-800">Overdue</span>
+                  ) : completedCount >= assigned.length ? (
+                    <span className="badge shrink-0 bg-green-100 text-green-800">Complete</span>
+                  ) : (
+                    <span className="badge shrink-0 bg-yellow-100 text-yellow-800">Pending</span>
+                  )}
+                </div>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <span className="badge bg-blue-100 text-blue-800">{tr.trainingType}</span>
+                  <p className={`text-xs ${isOverdue ? 'text-red-600 font-semibold' : 'text-gray-500'}`}>
+                    Next Due: {tr.nextDueDate ? formatDate(tr.nextDueDate) : '-'}
+                  </p>
+                </div>
+                <div className="mt-2 border-t border-gray-100 pt-2 text-xs text-gray-500">
+                  {completedCount}/{assigned.length} employees completed
+                </div>
+              </div>
+            );
+          })}
+          {trainings.length === 0 && (
+            <p className="card p-8 text-center text-gray-500">No training records</p>
+          )}
+        </div>
       </div>
 
       {/* Health & Legal Compliance */}
@@ -155,7 +191,7 @@ export default async function EhsPage() {
           <Heart className="h-5 w-5 text-primary-600" />
           <h2 className="text-lg font-semibold text-gray-900">Health & Legal Compliance</h2>
         </div>
-        <div className="card overflow-hidden">
+        <div className="card hidden overflow-hidden md:block">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -198,6 +234,35 @@ export default async function EhsPage() {
               </tbody>
             </table>
           </div>
+        </div>
+        <div className="space-y-3 md:hidden">
+          {healthRecords.map((hr) => {
+            const isOverdue = hr.nextDueDate && hr.nextDueDate < now;
+            return (
+              <div key={hr.id} className="card p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-gray-900">{hr.recordName}</p>
+                    <p className="text-xs text-gray-500">{hr.frequency}</p>
+                  </div>
+                  {isOverdue ? (
+                    <span className="badge shrink-0 bg-red-100 text-red-800">Overdue</span>
+                  ) : (
+                    <span className="badge shrink-0 bg-green-100 text-green-800">Current</span>
+                  )}
+                </div>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <span className="badge bg-purple-100 text-purple-800">{hr.recordType}</span>
+                  <p className={`text-xs ${isOverdue ? 'text-red-600 font-semibold' : 'text-gray-500'}`}>
+                    Next Due: {hr.nextDueDate ? formatDate(hr.nextDueDate) : '-'}
+                  </p>
+                </div>
+              </div>
+            );
+          })}
+          {healthRecords.length === 0 && (
+            <p className="card p-8 text-center text-gray-500">No compliance records</p>
+          )}
         </div>
       </div>
     </div>

@@ -149,7 +149,7 @@ export default async function PmPage() {
       {/* AMC Records */}
       <div>
         <h2 className="mb-4 text-lg font-semibold text-gray-900">AMC Contracts</h2>
-        <div className="card overflow-hidden">
+        <div className="card hidden overflow-hidden md:block">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -182,12 +182,33 @@ export default async function PmPage() {
             </table>
           </div>
         </div>
+        <div className="space-y-3 md:hidden">
+          {amcRecords.map((amc) => (
+            <div key={amc.id} className="card p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="font-semibold text-gray-900">{amc.contractNumber || '-'}</p>
+                  <p className="text-sm text-gray-700">{amc.machine?.machineName || '-'}</p>
+                  <p className="text-xs text-gray-500">{amc.vendorName}</p>
+                </div>
+                <p className="text-sm font-bold text-primary-600">₹{(amc.cost || 0).toLocaleString('en-IN')}</p>
+              </div>
+              <div className="mt-3 space-y-1 border-t border-gray-100 pt-2 text-xs text-gray-500">
+                <p>Period: {formatDate(amc.startDate)} - {formatDate(amc.endDate)}</p>
+                <p>Next Service: {amc.nextServiceDate ? formatDate(amc.nextServiceDate) : '-'}</p>
+              </div>
+            </div>
+          ))}
+          {amcRecords.length === 0 && (
+            <p className="card p-8 text-center text-gray-500">No AMC records</p>
+          )}
+        </div>
       </div>
 
       {/* Calibration Records */}
       <div>
         <h2 className="mb-4 text-lg font-semibold text-gray-900">Calibration Records</h2>
-        <div className="card overflow-hidden">
+        <div className="card hidden overflow-hidden md:block">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -219,6 +240,28 @@ export default async function PmPage() {
               </tbody>
             </table>
           </div>
+        </div>
+        <div className="space-y-3 md:hidden">
+          {calibrationRecords.map((cr) => (
+            <div key={cr.id} className="card p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="font-semibold text-gray-900">{cr.instrumentName}</p>
+                  <p className="text-sm text-gray-700">{cr.machine?.machineName || '-'}</p>
+                </div>
+                <span className="badge shrink-0 bg-gray-100 text-gray-800">{cr.calibrationType}</span>
+              </div>
+              <div className="mt-3 space-y-1 border-t border-gray-100 pt-2 text-xs text-gray-500">
+                <p>Frequency: {cr.frequency}</p>
+                <p>Last: {cr.lastCalibration ? formatDate(cr.lastCalibration) : '-'}</p>
+                <p>Next Due: {cr.nextDueDate ? formatDate(cr.nextDueDate) : '-'}</p>
+                <p>Lab: {cr.labName || '-'}</p>
+              </div>
+            </div>
+          ))}
+          {calibrationRecords.length === 0 && (
+            <p className="card p-8 text-center text-gray-500">No calibration records</p>
+          )}
         </div>
       </div>
     </div>

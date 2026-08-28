@@ -424,7 +424,7 @@ export default async function TicketDetailPage({
             <h3 className="mb-3 text-lg font-semibold text-gray-900">
               <Package className="inline h-5 w-5 mr-1" /> Parts Used
             </h3>
-            <div className="overflow-x-auto">
+            <div className="hidden overflow-x-auto md:block">
               <table className="w-full text-sm">
                 <thead>
                   <tr>
@@ -464,6 +464,34 @@ export default async function TicketDetailPage({
                   </tfoot>
                 )}
               </table>
+            </div>
+            <div className="space-y-3 md:hidden">
+              {ticket.sparePartsUsed.map((ps: any) => (
+                <div key={ps.id} className="rounded-lg border border-gray-100 p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-medium text-gray-900 truncate">{ps.part.partName}</p>
+                      <p className="text-xs text-gray-500">{ps.part.partCode}</p>
+                    </div>
+                    <span className="text-sm font-semibold shrink-0">{formatCurrency(ps.totalCost)}</span>
+                  </div>
+                  <div className="mt-1 flex items-center gap-4 text-xs text-gray-500">
+                    <span>{ps.qty} {ps.part.unit}</span>
+                    <span>Unit: {formatCurrency(ps.unitPrice)}</span>
+                  </div>
+                </div>
+              ))}
+              {ticket.sparePartsUsed.length === 0 && (
+                <p className="py-2 text-center text-sm text-gray-500">No parts added yet</p>
+              )}
+              {ticket.sparePartsUsed.length > 0 && (
+                <div className="flex items-center justify-between border-t border-gray-200 pt-3">
+                  <span className="text-sm font-semibold">Total Parts Cost</span>
+                  <span className="font-bold text-primary-600">
+                    {formatCurrency(ticket.sparePartsUsed.reduce((sum: number, p: any) => sum + p.totalCost, 0))}
+                  </span>
+                </div>
+              )}
             </div>
 
             {/* Add Parts Used Form */}

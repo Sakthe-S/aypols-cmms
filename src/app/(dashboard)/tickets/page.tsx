@@ -99,8 +99,8 @@ export default async function TicketsPage({
         </form>
       </div>
 
-      {/* Tickets Table */}
-      <div className="card overflow-hidden">
+      {/* Tickets Table (desktop) */}
+      <div className="card hidden overflow-hidden md:block">
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
@@ -163,6 +163,45 @@ export default async function TicketsPage({
             </tbody>
           </table>
         </div>
+      </div>
+
+      {/* Tickets Cards (mobile) */}
+      <div className="space-y-3 md:hidden">
+        {tickets.map((ticket) => (
+          <Link
+            key={ticket.id}
+            href={`/tickets/${ticket.id}`}
+            className="card block p-4 hover:shadow-md transition-shadow"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="font-semibold text-primary-600">{ticket.ticketNumber}</p>
+                <p className="mt-0.5 text-sm text-gray-700">{ticket.machine.machineName}</p>
+                <p className="mt-1 text-xs text-gray-500 line-clamp-2">{ticket.issueDescription}</p>
+              </div>
+              <span className={`badge shrink-0 ${getStatusColor(ticket.status)}`}>
+                {ticket.status.replace('_', ' ')}
+              </span>
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-gray-100 pt-3">
+              <span className={`badge ${getPriorityColor(ticket.priority)}`}>{ticket.priority}</span>
+              <span className="text-xs text-gray-500">{ticket.category || '-'}</span>
+              <span className="ml-auto text-xs font-medium text-gray-900">
+                {ticket.totalRepairCost ? `₹${ticket.totalRepairCost.toLocaleString('en-IN')}` : '-'}
+              </span>
+            </div>
+            <div className="mt-2 flex items-center justify-between text-xs text-gray-500">
+              <span>{ticket.reportedBy.name}</span>
+              <span>{formatDate(ticket.reportedDate)}</span>
+            </div>
+            {ticket.assignedTo && (
+              <div className="mt-1 text-xs text-gray-500">Assigned: {ticket.assignedTo.name}</div>
+            )}
+          </Link>
+        ))}
+        {tickets.length === 0 && (
+          <p className="card p-12 text-center text-sm text-gray-500">No tickets found</p>
+        )}
       </div>
     </div>
   );

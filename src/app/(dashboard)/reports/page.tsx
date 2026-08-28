@@ -145,7 +145,7 @@ export default async function ReportsPage() {
           <div className="card-header">
             <h3 className="text-lg font-semibold text-gray-900">Machine-wise Maintenance Cost</h3>
           </div>
-          <div className="overflow-x-auto">
+          <div className="hidden overflow-x-auto md:block">
             <table className="w-full text-sm">
               <thead>
                 <tr>
@@ -174,6 +174,24 @@ export default async function ReportsPage() {
               </tbody>
             </table>
           </div>
+          <div className="space-y-3 p-4 md:hidden">
+            {machines.map((m) => {
+              const totalCost = m.tickets.reduce((s: number, t: any) => s + (t.totalRepairCost || 0), 0);
+              return (
+                <div key={m.id} className="rounded-lg border border-gray-100 p-3">
+                  <div className="flex items-center justify-between">
+                    <p className="font-medium text-gray-900">{m.machineName}</p>
+                    <p className="text-sm font-semibold text-primary-600">{formatCurrency(m.lifetimeMaintenanceCost)}</p>
+                  </div>
+                  <div className="mt-1 flex items-center gap-4 text-xs text-gray-500">
+                    <span>{m._count.tickets} tickets</span>
+                    <span>Avg: {m._count.tickets > 0 ? formatCurrency(totalCost / m._count.tickets) : '-'}</span>
+                  </div>
+                </div>
+              );
+            })}
+            {machines.length === 0 && <p className="py-6 text-center text-sm text-gray-500">No machine data</p>}
+          </div>
         </div>
 
         {/* Top Technicians */}
@@ -181,7 +199,7 @@ export default async function ReportsPage() {
           <div className="card-header">
             <h3 className="text-lg font-semibold text-gray-900">Top Technicians</h3>
           </div>
-          <div className="overflow-x-auto">
+          <div className="hidden overflow-x-auto md:block">
             <table className="w-full text-sm">
               <thead>
                 <tr>
@@ -210,6 +228,24 @@ export default async function ReportsPage() {
               </tbody>
             </table>
           </div>
+          <div className="space-y-3 p-4 md:hidden">
+            {topTechnicians.map((tech) => {
+              const user = techUsers.find(u => u.id === tech.assignedToId);
+              return (
+                <div key={tech.assignedToId} className="rounded-lg border border-gray-100 p-3">
+                  <div className="flex items-center justify-between">
+                    <p className="font-medium text-gray-900">{user?.name || '-'}</p>
+                    <span className="text-xs text-gray-500">{tech._count} tickets</span>
+                  </div>
+                  <div className="mt-1 flex items-center gap-4 text-xs text-gray-500">
+                    <span>Avg Cost: {tech._avg.totalRepairCost ? formatCurrency(tech._avg.totalRepairCost) : '-'}</span>
+                    <span>Avg Hours: {tech._avg.laborHours ? `${tech._avg.laborHours.toFixed(1)}h` : '-'}</span>
+                  </div>
+                </div>
+              );
+            })}
+            {topTechnicians.length === 0 && <p className="py-6 text-center text-sm text-gray-500">No technician data</p>}
+          </div>
         </div>
       </div>
 
@@ -218,7 +254,7 @@ export default async function ReportsPage() {
         <div className="card-header">
           <h3 className="text-lg font-semibold text-gray-900">Most Used / Expensive Parts</h3>
         </div>
-        <div className="overflow-x-auto">
+        <div className="hidden overflow-x-auto md:block">
           <table className="w-full text-sm">
             <thead>
               <tr>
@@ -247,6 +283,27 @@ export default async function ReportsPage() {
               )}
             </tbody>
           </table>
+        </div>
+        <div className="space-y-3 p-4 md:hidden">
+          {topPartsUsed.map((pu) => {
+            const part = parts.find(p => p.id === pu.partId);
+            return (
+              <div key={pu.partId} className="rounded-lg border border-gray-100 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-medium text-gray-900 truncate">{part?.partName || '-'}</p>
+                    <p className="text-xs text-gray-500">{part?.partCode || '-'}</p>
+                  </div>
+                  <p className="text-sm font-semibold text-primary-600 shrink-0">{formatCurrency(pu._sum.totalCost || 0)}</p>
+                </div>
+                <div className="mt-1 flex items-center gap-4 text-xs text-gray-500">
+                  <span>{pu._count} uses</span>
+                  <span>{pu._sum.qty} {part?.unit}</span>
+                </div>
+              </div>
+            );
+          })}
+          {topPartsUsed.length === 0 && <p className="py-6 text-center text-sm text-gray-500">No parts usage data</p>}
         </div>
       </div>
     </div>

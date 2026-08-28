@@ -246,7 +246,7 @@ export default async function PartDetailPage({ params }: { params: { id: string 
             <div className="card-header">
               <h3 className="text-lg font-semibold text-gray-900">Transaction History</h3>
             </div>
-            <div className="overflow-x-auto">
+            <div className="hidden overflow-x-auto md:block">
               <table className="w-full text-sm">
                 <thead>
                   <tr>
@@ -287,6 +287,32 @@ export default async function PartDetailPage({ params }: { params: { id: string 
                 </tbody>
               </table>
             </div>
+            <div className="space-y-3 p-4 md:hidden">
+              {part.stockTransactions.map((tx: any) => (
+                <div key={tx.id} className="rounded-lg border border-gray-100 p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className={`badge shrink-0 ${
+                      tx.transactionType === 'stock_in' ? 'bg-green-100 text-green-800' :
+                      tx.transactionType === 'stock_out' ? 'bg-red-100 text-red-800' :
+                      'bg-blue-100 text-blue-800'
+                    }`}>
+                      {tx.transactionType.replace('_', ' ')}
+                    </span>
+                    <span className="text-sm font-semibold">
+                      {tx.transactionType === 'stock_in' ? '+' : '-'}{tx.quantity} {part.unit}
+                    </span>
+                  </div>
+                  <div className="mt-2 flex items-center justify-between text-xs text-gray-500">
+                    <span>{tx.user.name}</span>
+                    <span>{formatDateTime(tx.createdAt)}</span>
+                  </div>
+                  {tx.reason && <p className="mt-1 text-xs text-gray-500">Reason: {tx.reason}</p>}
+                </div>
+              ))}
+              {part.stockTransactions.length === 0 && (
+                <p className="py-4 text-center text-gray-500">No transactions yet</p>
+              )}
+            </div>
           </div>
 
           {/* Usage History */}
@@ -295,7 +321,7 @@ export default async function PartDetailPage({ params }: { params: { id: string 
               <div className="card-header">
                 <h3 className="text-lg font-semibold text-gray-900">Usage History (Tickets)</h3>
               </div>
-              <div className="overflow-x-auto">
+              <div className="hidden overflow-x-auto md:block">
                 <table className="w-full text-sm">
                   <thead>
                     <tr>
@@ -320,6 +346,20 @@ export default async function PartDetailPage({ params }: { params: { id: string 
                     ))}
                   </tbody>
                 </table>
+              </div>
+              <div className="space-y-3 p-4 md:hidden">
+                {part.ticketUsage.map((usage: any) => (
+                  <div key={usage.id} className="rounded-lg border border-gray-100 p-3">
+                    <a href={`/tickets/${usage.ticketId}`} className="text-primary-600 hover:underline">
+                      {usage.ticket.ticketNumber}
+                    </a>
+                    <div className="mt-1 flex items-center justify-between text-sm">
+                      <span className="text-gray-500">{usage.qty} {part.unit}</span>
+                      <span className="font-semibold">{formatCurrency(usage.totalCost)}</span>
+                    </div>
+                    <p className="text-xs text-gray-500">Unit Price: {formatCurrency(usage.unitPrice)}</p>
+                  </div>
+                ))}
               </div>
             </div>
           )}

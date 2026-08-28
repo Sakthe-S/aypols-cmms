@@ -26,7 +26,7 @@ export default async function TransactionsPage() {
         <p className="text-sm text-gray-500">All stock movements across inventory</p>
       </div>
 
-      <div className="card overflow-hidden">
+      <div className="card hidden overflow-hidden md:block">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -76,6 +76,42 @@ export default async function TransactionsPage() {
             </tbody>
           </table>
         </div>
+      </div>
+
+      {/* Transactions Cards (mobile) */}
+      <div className="space-y-3 md:hidden">
+        {transactions.map((tx) => (
+          <div key={tx.id} className="card p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="font-medium text-gray-900">{tx.part.partName}</p>
+                <p className="text-xs text-gray-500">{tx.part.partCode}</p>
+              </div>
+              <span className={`badge shrink-0 ${
+                tx.transactionType === 'stock_in' ? 'bg-green-100 text-green-800' :
+                tx.transactionType === 'stock_out' ? 'bg-red-100 text-red-800' :
+                tx.transactionType === 'transfer' ? 'bg-blue-100 text-blue-800' :
+                'bg-yellow-100 text-yellow-800'
+              }`}>
+                {tx.transactionType.replace('_', ' ')}
+              </span>
+            </div>
+            <div className="mt-2 flex items-center justify-between">
+              <span className="text-sm font-semibold">
+                {tx.transactionType === 'stock_in' ? '+' : tx.transactionType === 'stock_out' ? '-' : ''}{tx.quantity} {tx.part.unit}
+              </span>
+              <span className="text-xs text-gray-500">{formatDateTime(tx.createdAt)}</span>
+            </div>
+            <div className="mt-2 border-t border-gray-100 pt-2 text-xs text-gray-500">
+              <p>User: {tx.user.name}</p>
+              <p>Reason: {tx.reason || '-'}</p>
+              {tx.referencePo && <p>Reference: {tx.referencePo}</p>}
+            </div>
+          </div>
+        ))}
+        {transactions.length === 0 && (
+          <p className="card p-12 text-center text-gray-500">No transactions recorded</p>
+        )}
       </div>
     </div>
   );

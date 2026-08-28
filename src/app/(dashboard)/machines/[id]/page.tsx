@@ -198,7 +198,7 @@ export default async function MachineDetailPage({ params }: { params: { id: stri
         <div className="card-header">
           <h3 className="text-lg font-semibold text-gray-900">Service History</h3>
         </div>
-        <div className="overflow-x-auto">
+        <div className="hidden overflow-x-auto md:block">
           <table className="w-full text-sm">
             <thead>
               <tr>
@@ -244,6 +244,32 @@ export default async function MachineDetailPage({ params }: { params: { id: stri
               )}
             </tbody>
           </table>
+        </div>
+        <div className="space-y-3 p-4 md:hidden">
+          {machine.tickets.map((ticket: any) => (
+            <div key={ticket.id} className="rounded-lg border border-gray-100 p-3">
+              <div className="flex items-center justify-between gap-3">
+                <Link href={`/tickets/${ticket.id}`} className="font-medium text-primary-600 hover:underline">
+                  {ticket.ticketNumber}
+                </Link>
+                <span className={`badge shrink-0 ${getStatusColor(ticket.status)}`}>
+                  {ticket.status.replace('_', ' ')}
+                </span>
+              </div>
+              <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                <span>{formatDate(ticket.reportedDate)}</span>
+                <span>·</span>
+                <span>{ticket.assignedTo?.name || '-'}</span>
+                <span className={`badge ${getPriorityColor(ticket.priority)}`}>{ticket.priority}</span>
+                {ticket.totalRepairCost && (
+                  <span className="ml-auto text-sm font-semibold text-gray-900">{formatCurrency(ticket.totalRepairCost)}</span>
+                )}
+              </div>
+            </div>
+          ))}
+          {machine.tickets.length === 0 && (
+            <p className="py-4 text-center text-gray-500">No service history</p>
+          )}
         </div>
       </div>
     </div>

@@ -128,8 +128,8 @@ export default async function InventoryPage({
         </form>
       </div>
 
-      {/* Parts Table */}
-      <div className="card overflow-hidden">
+      {/* Parts Table (desktop) */}
+      <div className="card hidden overflow-hidden md:block">
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
@@ -190,6 +190,53 @@ export default async function InventoryPage({
             </tbody>
           </table>
         </div>
+      </div>
+
+      {/* Parts Cards (mobile) */}
+      <div className="space-y-3 md:hidden">
+        {parts.map((part) => {
+          const isLow = part.currentQty <= part.minThreshold;
+          return (
+            <Link
+              key={part.id}
+              href={`/inventory/${part.id}`}
+              className={`card block p-4 hover:shadow-md transition-shadow ${isLow ? 'border-red-200 bg-red-50/30' : ''}`}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <Link href={`/inventory/${part.id}`} className="font-semibold text-primary-600">{part.partCode}</Link>
+                  <p className="mt-0.5 text-sm font-medium text-gray-900">{part.partName}</p>
+                  <p className="text-xs text-gray-500">{part.category || '-'}</p>
+                </div>
+                {isLow ? (
+                  <span className="badge shrink-0 bg-red-100 text-red-800">
+                    <AlertTriangle className="mr-1 h-3 w-3" /> Low Stock
+                  </span>
+                ) : (
+                  <span className="badge shrink-0 bg-green-100 text-green-800">In Stock</span>
+                )}
+              </div>
+              <div className="mt-3 grid grid-cols-3 gap-2 border-t border-gray-100 pt-3 text-center">
+                <div>
+                  <p className="text-xs text-gray-500">Qty</p>
+                  <p className="text-sm font-semibold">{part.currentQty} {part.unit}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500">Min</p>
+                  <p className="text-sm text-gray-700">{part.minThreshold}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500">Price</p>
+                  <p className="text-sm font-semibold text-primary-600">{formatCurrency(part.purchaseRate)}</p>
+                </div>
+              </div>
+              <p className="mt-2 text-xs text-gray-500">{part.storageRoom}{part.rackBin ? `, ${part.rackBin}` : ''}</p>
+            </Link>
+          );
+        })}
+        {parts.length === 0 && (
+          <p className="card p-12 text-center text-sm text-gray-500">No parts found</p>
+        )}
       </div>
     </div>
   );

@@ -338,7 +338,7 @@ export default async function DashboardPage() {
               View All
             </Link>
           </div>
-          <div className="overflow-x-auto">
+          <div className="hidden overflow-x-auto md:block">
             <table className="w-full">
               <thead>
                 <tr>
@@ -381,6 +381,32 @@ export default async function DashboardPage() {
                 )}
               </tbody>
             </table>
+          </div>
+          <div className="space-y-3 p-4 md:hidden">
+            {recentTickets.map((ticket) => (
+              <Link
+                key={ticket.id}
+                href={`/tickets/${ticket.id}`}
+                className="block rounded-lg border border-gray-100 p-3 hover:shadow-md transition-shadow"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-medium text-primary-600">{ticket.ticketNumber}</p>
+                    <p className="truncate text-sm text-gray-700">{ticket.machine.machineName}</p>
+                  </div>
+                  <span className={`badge shrink-0 ${getStatusColor(ticket.status)}`}>
+                    {ticket.status.replace('_', ' ')}
+                  </span>
+                </div>
+                <div className="mt-1 flex items-center gap-2">
+                  <span className={`badge ${getPriorityColor(ticket.priority)}`}>{ticket.priority}</span>
+                  <span className="text-xs text-gray-500">{ticket.category}</span>
+                </div>
+              </Link>
+            ))}
+            {recentTickets.length === 0 && (
+              <p className="py-4 text-center text-sm text-gray-500">No tickets yet</p>
+            )}
           </div>
         </div>
 
