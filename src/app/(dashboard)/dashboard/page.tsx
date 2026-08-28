@@ -1,4 +1,4 @@
-import prisma from '@/lib/prisma';
+import { query, queryOne, execute, toCamel } from '@/lib/db';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { formatCurrency, getStatusColor, getPriorityColor, getRelativeTime } from '@/lib/utils';
@@ -21,114 +21,123 @@ export default async function DashboardPage() {
 
   // ── Reminder Engine: generate notifications for upcoming PMs, calibrations, AMCs, and training ──
   const now = new Date();
-  const notifUsers = await prisma.user.findMany({ where: { role: { in: ['SUPERVISOR', 'ADMIN', 'EHS_OFFICIER', 'STORE_ADMIN'] } } });
+  const notifUsers = await query<{ id: number }>(
+    `SELECT DISTINCT id FROM users WHERE role = ANY($1)`,
+    [['SUPERVISOR', 'ADMIN', 'EHS_OFFICER', 'STORE_ADMIN']]
+  );
   const supervisorIds = notifUsers.map(u => u.id);
+  const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
 
   // PM reminders
-  const duePms = await prisma.pmSchedule.findMany({
-    where: { isActive: true, nextDueDate: { not: null } },
-    include: { machine: true },
-  });
+  const duePms = await query<{ id: number; task_name: string; next_due_date: Date | null; lead_days: number; machine_name: string }>(
+    `SELECT ps.id, ps.task_name, ps.next_due_date, ps.lead_days, m.machine_name
+     FROM pm_schedules ps JOIN machines m ON m.id = ps.machine_id
+     WHERE ps.is_active = true AND ps.next_due_date IS NOT NULL`
+  );
   for (const pm of duePms) {
-    if (!pm.nextDueDate) continue;
-    const msUntilDue = pm.nextDueDate.getTime() - now.getTime();
+    if (!pm.next_due_date) continue;
+    const msUntilDue = pm.next_due_date.getTime() - now.getTime();
     const daysUntilDue = msUntilDue / (1000 * 60 * 60 * 24);
-    if (daysUntilDue <= pm.leadDays && daysUntilDue >= -30) {
-      const existing = await prisma.notification.findFirst({
-        where: { type: 'pm_reminder', message: { contains: pm.taskName }, createdAt: { gte: new Date(now.getTime() - 24 * 60 * 60 * 1000) } },
-      });
+    if (daysUntilDue <= pm.lead_days && daysUntilDue >= -30) {
+      const existing = await queryOne(
+        `SELECT id FROM notifications
+         WHERE type = 'pm_reminder' AND message ILIKE $1 AND created_at >= $2 LIMIT 1`,
+        [`%${pm.task_name}%`, dayAgo]
+      );
       if (!existing) {
         for (const uid of supervisorIds) {
-          await prisma.notification.create({
-            data: {
-              userId: uid,
-              title: 'PM Reminder',
-              message: `${pm.machine.machineName} - ${pm.taskName} due on ${pm.nextDueDate.toLocaleDateString('en-IN')}`,
-              type: 'pm_reminder',
-              linkUrl: '/pm',
-            },
-          });
+          await execute(
+            `INSERT INTO notifications (user_id, title, message, type, link_url)
+             VALUES ($1, $2, $3, $4, $5)`,
+            [uid, 'PM Reminder', `${pm.machine_name} - ${pm.task_name} due on ${pm.next_due_date.toLocaleDateString('en-IN')}`, 'pm_reminder', '/pm']
+          );
         }
       }
     }
   }
 
   // Calibration reminders
-  const dueCals = await prisma.calibrationRecord.findMany({ where: { isActive: true, nextDueDate: { not: null } }, include: { machine: true } });
+  const dueCals = await query<{ id: number; instrument_name: string; next_due_date: Date | null; lead_days: number; machine_name: string | null }>(
+    `SELECT cr.id, cr.instrument_name, cr.next_due_date, cr.lead_days, m.machine_name
+     FROM calibration_records cr LEFT JOIN machines m ON m.id = cr.machine_id
+     WHERE cr.is_active = true AND cr.next_due_date IS NOT NULL`
+  );
   for (const cal of dueCals) {
-    if (!cal.nextDueDate) continue;
-    const daysUntilDue = (cal.nextDueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24);
-    if (daysUntilDue <= cal.leadDays && daysUntilDue >= -30) {
-      const existing = await prisma.notification.findFirst({
-        where: { type: 'calibration_reminder', message: { contains: cal.instrumentName }, createdAt: { gte: new Date(now.getTime() - 24 * 60 * 60 * 1000) } },
-      });
+    if (!cal.next_due_date) continue;
+    const daysUntilDue = (cal.next_due_date.getTime() - now.getTime()) / (1000 * 60 * 60 * 24);
+    if (daysUntilDue <= cal.lead_days && daysUntilDue >= -30) {
+      const existing = await queryOne(
+        `SELECT id FROM notifications
+         WHERE type = 'calibration_reminder' AND message ILIKE $1 AND created_at >= $2 LIMIT 1`,
+        [`%${cal.instrument_name}%`, dayAgo]
+      );
       if (!existing) {
         for (const uid of supervisorIds) {
-          await prisma.notification.create({
-            data: {
-              userId: uid,
-              title: 'Calibration Due',
-              message: `${cal.machine?.machineName || 'Unknown'} - ${cal.instrumentName} calibration due on ${cal.nextDueDate.toLocaleDateString('en-IN')}`,
-              type: 'calibration_reminder',
-              linkUrl: '/pm',
-            },
-          });
+          await execute(
+            `INSERT INTO notifications (user_id, title, message, type, link_url)
+             VALUES ($1, $2, $3, $4, $5)`,
+            [uid, 'Calibration Due', `${cal.machine_name || 'Unknown'} - ${cal.instrument_name} calibration due on ${cal.next_due_date.toLocaleDateString('en-IN')}`, 'calibration_reminder', '/pm']
+          );
         }
       }
     }
   }
 
   // AMC reminders
-  const dueAmcs = await prisma.amcRecord.findMany({ where: { isActive: true, nextServiceDate: { not: null } }, include: { machine: true } });
+  const dueAmcs = await query<{ id: number; vendor_name: string; next_service_date: Date | null; lead_days: number; machine_name: string | null }>(
+    `SELECT ar.id, ar.vendor_name, ar.next_service_date, ar.lead_days, m.machine_name
+     FROM amc_records ar LEFT JOIN machines m ON m.id = ar.machine_id
+     WHERE ar.is_active = true AND ar.next_service_date IS NOT NULL`
+  );
   for (const amc of dueAmcs) {
-    if (!amc.nextServiceDate) continue;
-    const daysUntilDue = (amc.nextServiceDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24);
-    if (daysUntilDue <= amc.leadDays && daysUntilDue >= -30) {
-      const existing = await prisma.notification.findFirst({
-        where: { type: 'amc_reminder', message: { contains: amc.vendorName }, createdAt: { gte: new Date(now.getTime() - 24 * 60 * 60 * 1000) } },
-      });
+    if (!amc.next_service_date) continue;
+    const daysUntilDue = (amc.next_service_date.getTime() - now.getTime()) / (1000 * 60 * 60 * 24);
+    if (daysUntilDue <= amc.lead_days && daysUntilDue >= -30) {
+      const existing = await queryOne(
+        `SELECT id FROM notifications
+         WHERE type = 'amc_reminder' AND message ILIKE $1 AND created_at >= $2 LIMIT 1`,
+        [`%${amc.vendor_name}%`, dayAgo]
+      );
       if (!existing) {
         for (const uid of supervisorIds) {
-          await prisma.notification.create({
-            data: {
-              userId: uid,
-              title: 'AMC Service Due',
-              message: `${amc.machine?.machineName || 'Unknown'} - AMC service with ${amc.vendorName} due on ${amc.nextServiceDate.toLocaleDateString('en-IN')}`,
-              type: 'amc_reminder',
-              linkUrl: '/pm',
-            },
-          });
+          await execute(
+            `INSERT INTO notifications (user_id, title, message, type, link_url)
+             VALUES ($1, $2, $3, $4, $5)`,
+            [uid, 'AMC Service Due', `${amc.machine_name || 'Unknown'} - AMC service with ${amc.vendor_name} due on ${amc.next_service_date.toLocaleDateString('en-IN')}`, 'amc_reminder', '/pm']
+          );
         }
       }
     }
   }
 
   // Training reminders
-  const dueTrainings = await prisma.trainingRecord.findMany({ where: { isActive: true, nextDueDate: { not: null } } });
+  const dueTrainings = await query<{ id: number; training_name: string; training_type: string; next_due_date: Date | null; lead_days: number }>(
+    `SELECT id, training_name, training_type, next_due_date, lead_days
+     FROM training_records WHERE is_active = true AND next_due_date IS NOT NULL`
+  );
   for (const tr of dueTrainings) {
-    if (!tr.nextDueDate) continue;
-    const daysUntilDue = (tr.nextDueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24);
-    if (daysUntilDue <= tr.leadDays && daysUntilDue >= -30) {
-      const existing = await prisma.notification.findFirst({
-        where: { type: 'training_reminder', message: { contains: tr.trainingName }, createdAt: { gte: new Date(now.getTime() - 24 * 60 * 60 * 1000) } },
-      });
+    if (!tr.next_due_date) continue;
+    const daysUntilDue = (tr.next_due_date.getTime() - now.getTime()) / (1000 * 60 * 60 * 24);
+    if (daysUntilDue <= tr.lead_days && daysUntilDue >= -30) {
+      const existing = await queryOne(
+        `SELECT id FROM notifications
+         WHERE type = 'training_reminder' AND message ILIKE $1 AND created_at >= $2 LIMIT 1`,
+        [`%${tr.training_name}%`, dayAgo]
+      );
       if (!existing) {
         for (const uid of supervisorIds) {
-          await prisma.notification.create({
-            data: {
-              userId: uid,
-              title: 'Training Reminder',
-              message: `${tr.trainingName} (${tr.trainingType}) due on ${tr.nextDueDate.toLocaleDateString('en-IN')}`,
-              type: 'training_reminder',
-              linkUrl: '/ehs',
-            },
-          });
+          await execute(
+            `INSERT INTO notifications (user_id, title, message, type, link_url)
+             VALUES ($1, $2, $3, $4, $5)`,
+            [uid, 'Training Reminder', `${tr.training_name} (${tr.training_type}) due on ${tr.next_due_date.toLocaleDateString('en-IN')}`, 'training_reminder', '/ehs']
+          );
         }
       }
     }
   }
 
   // ── Dashboard Data ──
+  const monthAhead = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
   const [
     openTickets,
     inProgressTickets,
@@ -136,71 +145,98 @@ export default async function DashboardPage() {
     totalMachines,
     lowStockPartsRaw,
     upcomingPms,
-    recentTickets,
-    lowStockItemsRaw,
-    upcomingPmList,
+    recentTicketsRaw,
+    lowStockItemIds,
+    upcomingPmRaw,
   ] = await Promise.all([
-    prisma.maintenanceTicket.count({ where: { status: { in: ['open', 'allocated'] } } }),
-    prisma.maintenanceTicket.count({ where: { status: 'in_progress' } }),
-    prisma.maintenanceTicket.count({ where: { status: { in: ['verified', 'closed'] } } }),
-    prisma.machine.count(),
-    prisma.$queryRawUnsafe<[{count: number}]>(`SELECT COUNT(*) as count FROM spare_parts WHERE current_qty <= min_threshold`),
-    prisma.pmSchedule.count({
-      where: {
-        nextDueDate: { lte: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) },
-        isActive: true,
-      },
-    }),
-    prisma.maintenanceTicket.findMany({
-      take: 5,
-      orderBy: { createdAt: 'desc' },
-      include: { machine: true, assignedTo: true },
-    }),
-    prisma.$queryRawUnsafe<{id: number}[]>(`SELECT id FROM spare_parts WHERE current_qty <= min_threshold ORDER BY current_qty ASC LIMIT 5`),
-    prisma.pmSchedule.findMany({
-      where: { isActive: true },
-      take: 5,
-      orderBy: { nextDueDate: 'asc' },
-      include: { machine: true },
-    }),
+    queryOne<{ count: number }>(`SELECT count(*)::int AS count FROM maintenance_tickets WHERE status IN ('open', 'allocated')`),
+    queryOne<{ count: number }>(`SELECT count(*)::int AS count FROM maintenance_tickets WHERE status = 'in_progress'`),
+    queryOne<{ count: number }>(`SELECT count(*)::int AS count FROM maintenance_tickets WHERE status IN ('verified', 'closed')`),
+    queryOne<{ count: number }>(`SELECT count(*)::int AS count FROM machines`),
+    queryOne<{ count: number }>(`SELECT count(*)::int AS count FROM spare_parts WHERE current_qty <= min_threshold`),
+    queryOne<{ count: number }>(
+      `SELECT count(*)::int AS count FROM pm_schedules
+       WHERE next_due_date <= $1 AND is_active = true`,
+      [monthAhead]
+    ),
+    query<Record<string, unknown>>(
+      `SELECT t.id, t.ticket_number, t.status, t.priority, t.category, t.created_at,
+              m.machine_name, u.name AS assigned_to_name
+       FROM maintenance_tickets t
+       LEFT JOIN machines m ON m.id = t.machine_id
+       LEFT JOIN users u ON u.id = t.assigned_to_id
+       ORDER BY t.created_at DESC LIMIT 5`
+    ),
+    query<{ id: number }>(
+      `SELECT id FROM spare_parts WHERE current_qty <= min_threshold ORDER BY current_qty ASC LIMIT 5`
+    ),
+    query<Record<string, unknown>>(
+      `SELECT ps.id, ps.task_name, ps.next_due_date, ps.frequency, m.machine_name
+       FROM pm_schedules ps JOIN machines m ON m.id = ps.machine_id
+       WHERE ps.is_active = true
+       ORDER BY ps.next_due_date ASC NULLS LAST
+       LIMIT 5`
+    ),
   ]);
 
-  const lowStockParts = Number(lowStockPartsRaw[0]?.count || 0);
+  const lowStockParts = Number(lowStockPartsRaw?.count || 0);
 
-  const lowStockItemIds = (lowStockItemsRaw as any[]).map((r: any) => Number(r.id));
-  const lowStockItems = lowStockItemIds.length > 0
-    ? await prisma.sparePart.findMany({ where: { id: { in: lowStockItemIds } }, orderBy: { currentQty: 'asc' } })
+  const lowStockItemIdsArr = lowStockItemIds.map(r => Number(r.id));
+  const lowStockItems = lowStockItemIdsArr.length > 0
+    ? await query<Record<string, unknown>>(
+        `SELECT * FROM spare_parts WHERE id = ANY($1) ORDER BY current_qty ASC`,
+        [lowStockItemIdsArr]
+      )
     : [];
 
-  const totalLifetimeCost = await prisma.machine.aggregate({
-    _sum: { lifetimeMaintenanceCost: true },
+  const totalLifetimeCost = await queryOne<{ total: number | null }>(
+    `SELECT COALESCE(SUM(lifetime_maintenance_cost), 0)::float8 AS total FROM machines`
+  );
+
+  const recentTickets: any[] = recentTicketsRaw.map(row => {
+    const r = toCamel(row);
+    return {
+      ...r,
+      ticketNumber: r.ticketNumber as string,
+      machine: { machineName: r.machineName },
+    };
+  });
+
+  const lowStockItemsCamel = lowStockItems.map(item => toCamel(item));
+
+  const upcomingPmList: any[] = upcomingPmRaw.map(row => {
+    const r = toCamel(row);
+    return {
+      ...r,
+      machine: { machineName: r.machineName },
+    };
   });
 
   const stats = [
     {
       label: 'Open Tickets',
-      value: openTickets,
+      value: openTickets?.count || 0,
       icon: Ticket,
       color: 'bg-blue-500',
       href: '/tickets',
     },
     {
       label: 'In Progress',
-      value: inProgressTickets,
+      value: inProgressTickets?.count || 0,
       icon: Clock,
       color: 'bg-orange-500',
       href: '/tickets',
     },
     {
       label: 'Completed',
-      value: closedTickets,
+      value: closedTickets?.count || 0,
       icon: CheckCircle2,
       color: 'bg-green-500',
       href: '/tickets',
     },
     {
       label: 'Total Machines',
-      value: totalMachines,
+      value: totalMachines?.count || 0,
       icon: Wrench,
       color: 'bg-purple-500',
       href: '/machines',
@@ -249,7 +285,7 @@ export default async function DashboardPage() {
             <div>
               <p className="text-sm font-medium text-gray-500">Total Lifetime Cost</p>
               <p className="text-2xl font-bold text-gray-900">
-                {formatCurrency(totalLifetimeCost._sum.lifetimeMaintenanceCost || 0)}
+                {formatCurrency(totalLifetimeCost?.total || 0)}
               </p>
             </div>
           </div>
@@ -264,7 +300,7 @@ export default async function DashboardPage() {
               </div>
               <div>
                 <p className="text-sm font-medium text-gray-500">Low Stock Items</p>
-                <p className="text-2xl font-bold text-gray-900">{lowStockItems.length}</p>
+                <p className="text-2xl font-bold text-gray-900">{lowStockItemsCamel.length}</p>
               </div>
             </div>
             <Link href="/inventory" className="text-sm text-primary-600 hover:underline">
@@ -282,7 +318,7 @@ export default async function DashboardPage() {
               </div>
               <div>
                 <p className="text-sm font-medium text-gray-500">Upcoming PMs (30d)</p>
-                <p className="text-2xl font-bold text-gray-900">{upcomingPms}</p>
+                <p className="text-2xl font-bold text-gray-900">{upcomingPms?.count || 0}</p>
               </div>
             </div>
             <Link href="/pm" className="text-sm text-primary-600 hover:underline">
@@ -359,7 +395,7 @@ export default async function DashboardPage() {
               </Link>
             </div>
             <div className="divide-y divide-gray-100">
-              {lowStockItems.map((part) => (
+              {lowStockItemsCamel.map((part) => (
                 <div key={part.id} className="flex items-center justify-between px-6 py-3">
                   <div>
                     <p className="text-sm font-medium text-gray-900">{part.partName}</p>
@@ -371,7 +407,7 @@ export default async function DashboardPage() {
                   </div>
                 </div>
               ))}
-              {lowStockItems.length === 0 && (
+              {lowStockItemsCamel.length === 0 && (
                 <p className="px-6 py-4 text-center text-sm text-gray-500">All stock levels OK</p>
               )}
             </div>

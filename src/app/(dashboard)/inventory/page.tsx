@@ -1,4 +1,4 @@
-import prisma from '@/lib/prisma';
+import { query, queryOne, toCamel } from '@/lib/db';
 import Link from 'next/link';
 import { formatCurrency } from '@/lib/utils';
 import { Plus, Package, AlertTriangle, Search } from 'lucide-react';
@@ -10,39 +10,37 @@ export default async function InventoryPage({
 }: {
   searchParams: { category?: string; search?: string; stock?: string };
 }) {
-  const where: any = {};
+  const conditions: string[] = [];
+  const params: unknown[] = [];
   if (searchParams.category && searchParams.category !== 'all') {
-    where.category = searchParams.category;
+    params.push(searchParams.category);
+    conditions.push(`category = $${params.length}`);
   }
   if (searchParams.search) {
-    where.OR = [
-      { partName: { contains: searchParams.search } },
-      { partCode: { contains: searchParams.search } },
-    ];
+    params.push(`%${searchParams.search}%`, `%${searchParams.search}%`);
+    conditions.push(`(part_name ILIKE $${params.length - 1} OR part_code ILIKE $${params.length})`);
   }
   if (searchParams.stock === 'low') {
-    where.id = { in: (await prisma.$queryRawUnsafe<[{id: number}]>(`SELECT id FROM spare_parts WHERE current_qty <= min_threshold`)).map(r => r.id) };
+    conditions.push(`current_qty <= min_threshold`);
   }
+  const whereSql = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-  const parts = await prisma.sparePart.findMany({
-    where,
-    orderBy: { partName: 'asc' },
-  });
+  const parts = (await query<Record<string, unknown>>(
+    `SELECT * FROM spare_parts ${whereSql} ORDER BY part_name ASC`,
+    params
+  )).map(toCamel);
 
-  const categories = await prisma.sparePart.findMany({
-    select: { category: true },
-    distinct: ['category'],
-    where: { category: { not: null } },
-  });
+  const categories = (await query<Record<string, unknown>>(
+    `SELECT DISTINCT category FROM spare_parts WHERE category IS NOT NULL AND category != ''`
+  )).map(toCamel);
 
-  const lowStockCountRaw = await prisma.$queryRawUnsafe<[{count: number}]>(
-    `SELECT COUNT(*) as count FROM spare_parts WHERE current_qty <= min_threshold`
-  );
-  const lowStockCount = Number(lowStockCountRaw[0]?.count || 0);
+  const lowStockCount = (await queryOne<{ count: number }>(
+    `SELECT count(*)::int AS count FROM spare_parts WHERE current_qty <= min_threshold`
+  ))?.count || 0;
 
-  const totalValue = await prisma.sparePart.aggregate({
-    _sum: { purchaseRate: true },
-  });
+  const totalValue = (await queryOne<{ total: number | null }>(
+    `SELECT COALESCE(SUM(purchase_rate), 0)::float8 AS total FROM spare_parts`
+  ))?.total || 0;
 
   return (
     <div className="space-y-6">
@@ -94,7 +92,7 @@ export default async function InventoryPage({
             <div>
               <p className="text-xs text-gray-500">Total Stock Value</p>
               <p className="text-xl font-bold">
-                {totalValue._sum.purchaseRate ? formatCurrency(totalValue._sum.purchaseRate) : '₹0'}
+                {totalValue ? formatCurrency(totalValue) : '₹0'}
               </p>
             </div>
           </div>

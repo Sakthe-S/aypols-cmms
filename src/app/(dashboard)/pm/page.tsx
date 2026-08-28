@@ -1,4 +1,4 @@
-import prisma from '@/lib/prisma';
+import { query, queryOne, execute, toCamel } from '@/lib/db';
 import { formatDate, getStatusColor } from '@/lib/utils';
 import { Calendar, Clock, CheckCircle2 } from 'lucide-react';
 import Link from 'next/link';
@@ -9,37 +9,69 @@ import { authOptions } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
+type PmRow = Record<string, unknown>;
+
 export default async function PmPage() {
   const session = await getServerSession(authOptions);
-  const schedules = await prisma.pmSchedule.findMany({
-    where: { isActive: true },
-    include: { machine: true, logs: { orderBy: { completedAt: 'desc' }, take: 1, include: { completedBy: true } } },
-    orderBy: { nextDueDate: 'asc' },
+  const pmRows = await query<PmRow>(
+    `SELECT ps.*, m.machine_name,
+            (SELECT l.completed_at FROM pm_logs l WHERE l.schedule_id = ps.id ORDER BY l.completed_at DESC LIMIT 1) AS last_completed_at,
+            (SELECT u.name FROM pm_logs l JOIN users u ON u.id = l.completed_by_id WHERE l.schedule_id = ps.id ORDER BY l.completed_at DESC LIMIT 1) AS last_completed_by
+     FROM pm_schedules ps
+     JOIN machines m ON m.id = ps.machine_id
+     WHERE ps.is_active = true
+     ORDER BY ps.next_due_date ASC NULLS LAST`
+  );
+  const schedules = pmRows.map(row => {
+    const r = toCamel(row);
+    const lastDone = row['last_completed_at'] != null
+      ? [{ completedAt: r.lastCompletedAt, completedBy: { name: r.lastCompletedBy } }]
+      : [];
+    return {
+      ...r,
+      machine: { machineName: r.machineName },
+      logs: lastDone,
+    };
   });
 
-  const amcRecords = await prisma.amcRecord.findMany({
-    where: { isActive: true },
-    orderBy: { nextServiceDate: 'asc' },
+  const amcRows = await query<Record<string, unknown>>(
+    `SELECT ar.*, m.machine_name
+     FROM amc_records ar
+     LEFT JOIN machines m ON m.id = ar.machine_id
+     WHERE ar.is_active = true
+     ORDER BY ar.next_service_date ASC NULLS LAST`
+  );
+  const amcRecords = amcRows.map(row => {
+    const r = toCamel(row);
+    return { ...r, machine: row['machine_name'] != null ? { machineName: r.machineName } : null };
   });
 
-  const calibrationRecords = await prisma.calibrationRecord.findMany({
-    where: { isActive: true },
-    orderBy: { nextDueDate: 'asc' },
+  const calibrationRows = await query<Record<string, unknown>>(
+    `SELECT cr.*, m.machine_name
+     FROM calibration_records cr
+     LEFT JOIN machines m ON m.id = cr.machine_id
+     WHERE cr.is_active = true
+     ORDER BY cr.next_due_date ASC NULLS LAST`
+  );
+  const calibrationRecords = calibrationRows.map(row => {
+    const r = toCamel(row);
+    return { ...r, machine: row['machine_name'] != null ? { machineName: r.machineName } : null };
   });
 
   async function markPmComplete(scheduleId: number) {
     'use server';
     const userId = Number((session?.user as any)?.id);
-    const schedule = await prisma.pmSchedule.findUnique({ where: { id: scheduleId } });
+    const schedule = await queryOne<Record<string, unknown>>(
+      `SELECT * FROM pm_schedules WHERE id = $1`,
+      [scheduleId]
+    );
     if (!schedule) return;
 
-    await prisma.pmLog.create({
-      data: {
-        scheduleId,
-        completedById: userId,
-        notes: 'PM completed',
-      },
-    });
+    await execute(
+      `INSERT INTO pm_logs (schedule_id, completed_by_id, notes)
+       VALUES ($1, $2, $3)`,
+      [scheduleId, userId, 'PM completed']
+    );
 
     const now = new Date();
     let nextDue: Date | null = null;
@@ -52,10 +84,10 @@ export default async function PmPage() {
       case 'yearly': nextDue = new Date(now.getTime() + 365 * 86400000); break;
     }
 
-    await prisma.pmSchedule.update({
-      where: { id: scheduleId },
-      data: { lastCompletedAt: now, nextDueDate: nextDue },
-    });
+    await execute(
+      `UPDATE pm_schedules SET last_completed_at = $1, next_due_date = $2 WHERE id = $3`,
+      [now, nextDue, scheduleId]
+    );
 
     revalidatePath('/pm');
     redirect('/pm');

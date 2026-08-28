@@ -1,7 +1,16 @@
 import { NextAuthOptions } from 'next-auth';
 import CredentialsProvider from 'next-auth/providers/credentials';
 import bcrypt from 'bcryptjs';
-import prisma from './prisma';
+import { queryOne } from './db';
+
+type AuthUser = {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  is_active: boolean;
+  password_hash: string;
+};
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -14,13 +23,15 @@ export const authOptions: NextAuthOptions = {
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null;
 
-        const user = await prisma.user.findUnique({
-          where: { email: credentials.email },
-        });
+        const user = await queryOne<AuthUser>(
+          `SELECT id, name, email, role, is_active, password_hash
+           FROM users WHERE email = $1`,
+          [credentials.email]
+        );
 
-        if (!user || !user.isActive) return null;
+        if (!user || !user.is_active) return null;
 
-        const isValid = await bcrypt.compare(credentials.password, user.passwordHash);
+        const isValid = await bcrypt.compare(credentials.password, user.password_hash);
         if (!isValid) return null;
 
         return {

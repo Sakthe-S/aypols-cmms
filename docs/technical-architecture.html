@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Aypols CMMS - Technical Architecture</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', Arial, sans-serif;
+    background: #0f172a;
+    color: #e2e8f0;
+    padding: 40px;
+  }
+  .page { max-width: 1400px; margin: 0 auto; }
+  h1 { text-align: center; color: #fff; font-size: 30px; margin-bottom: 4px; }
+  .subtitle { text-align: center; color: #94a3b8; font-size: 14px; margin-bottom: 30px; }
+
+  /* Stack / Layer Diagram */
+  .stack {
+    background: #fff; border-radius: 14px; padding: 24px; color: #1e293b;
+    box-shadow: 0 10px 40px rgba(0,0,0,.35); margin-bottom: 30px;
+  }
+  .layer {
+    display: flex; align-items: center; gap: 14px;
+    border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 18px;
+    margin-bottom: 12px; background: #f8fafc;
+  }
+  .layer:last-child { margin-bottom: 0; }
+  .layer-lbl {
+    width: 180px; flex-shrink: 0; font-weight: 800; font-size: 14px;
+    color: #fff; text-align: center; padding: 10px; border-radius: 8px;
+  }
+  .layer-items { flex: 1; }
+  .layer-items .item {
+    display: inline-block; background: #fff; border: 1px solid #cbd5e1;
+    border-radius: 8px; padding: 6px 12px; margin: 3px 4px 3px 0;
+    font-size: 12px; font-weight: 600; color: #334155;
+  }
+  .arrow {
+    text-align: center; color: #64748b; font-size: 20px; margin: 2px 0;
+    line-height: 1;
+  }
+
+  /* Card grid */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(430px,1fr)); gap: 20px; }
+  .card {
+    background: #fff; border-radius: 12px; overflow: hidden; color: #1e293b;
+    box-shadow: 0 6px 24px rgba(0,0,0,.3); display: flex; flex-direction: column;
+  }
+  .card-dim { background: #e2e8f0; color: #64748b; }
+  .card-header { padding: 12px 16px; color: #fff; font-weight: 700; font-size: 15px; }
+  .card-body { padding: 14px 16px; font-size: 13px; line-height: 1.65; }
+  .card-body .chipRow { margin-bottom: 10px; }
+  .chip {
+    display: inline-block; background: #fff; border: 1px solid #cbd5e1;
+    border-radius: 6px; padding: 3px 8px; margin: 2px 4px 2px 0;
+    font-size: 11px; font-weight: 600; color: #334155;
+  }
+  .card-body h4 { font-size: 12px; color: #64748b; text-transform: uppercase; letter-spacing: .5px; margin: 8px 0 4px; }
+  .card-body ul { padding-left: 18px; margin: 4px 0; }
+  .card-body li { margin-bottom: 3px; }
+  .code {
+    background: #0f172a; color: #a5f3fc; font-family: 'Consolas', monospace;
+    font-size: 12px; border-radius: 8px; padding: 10px 12px; white-space: pre-wrap; margin-top: 6px;
+  }
+  .action { text-align: center; margin: 30px 0 10px; }
+  .action button {
+    background: #3b82f6; color: #fff; border: none; padding: 12px 28px;
+    border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer;
+  }
+  .action button:hover { background: #2563eb; }
+  .footer { text-align: center; color: #64748b; font-size: 12px; margin-top: 20px; }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>⚙️ Aypols CMMS — Technical Architecture</h1>
+  <div class="subtitle">Full-stack Next.js 14 · Prisma ORM · SQLite · NextAuth v4 · Tailwind CSS</div>
+
+  <!-- Layered stack -->
+  <div class="stack">
+    <div class="layer">
+      <div class="layer-lbl" style="background:#3b82f6">Presentation (UI)</div>
+      <div class="layer-items">
+        <span class="item">React 18 (App Router)</span>
+        <span class="item">Tailwind CSS 3</span>
+        <span class="item">Lucide Icons</span>
+        <span class="item">Server Components</span>
+        <span class="item">Responsive / Mobile-first</span>
+      </div>
+    </div>
+    <div class="arrow">▼</div>
+    <div class="layer">
+      <div class="layer-lbl" style="background:#6366f1">Application (Next.js)</div>
+      <div class="layer-items">
+        <span class="item">Server Actions</span>
+        <span class="item">Route Handlers (API)</span>
+        <span class="item">Middleware (Auth)</span>
+        <span class="item">Pages (Dashboard/Layout)</span>
+        <span class="item">Route Groups</span>
+      </div>
+    </div>
+    <div class="arrow">▼</div>
+    <div class="layer">
+      <div class="layer-lbl" style="background:#059669">Data Access</div>
+      <div class="layer-items">
+        <span class="item">Prisma ORM 5</span>
+        <span class="item">Prisma Client Singleton</span>
+        <span class="item">Raw SQL queries</span>
+        <span class="item">Prisma Studio (dev)</span>
+      </div>
+    </div>
+    <div class="arrow">▼</div>
+    <div class="layer">
+      <div class="layer-lbl" style="background:#dc2626">Data Store</div>
+      <div class="layer-items">
+        <span class="item">SQLite (dev.db)</span>
+        <span class="item">16 Tables</span>
+        <span class="item">Seed data</span>
+      </div>
+    </div>
+    <div class="arrow">▼</div>
+    <div class="layer">
+      <div class="layer-lbl" style="background:#7c3aed">External (Future)</div>
+      <div class="layer-items">
+        <span class="item">WhatsApp Business API (pending)</span>
+        <span class="item">Tally Sync (Phase 2)</span>
+        <span class="item">Email (future)</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Cards -->
+  <div class="grid">
+    <div class="card">
+      <div class="card-header" style="background:#3b82f6">🎨 Frontend Framework</div>
+      <div class="card-body">
+        <b>Next.js 14.2 (App Router)</b>
+        <ul>
+          <li>React Server Components for fast, SEO-friendly pages</li>
+          <li>Client components only where interactivity needed (Sidebar, Login)</li>
+          <li>Route groups <span class="chip">(dashboard)</span> for shared auth layout</li>
+          <li>TypeScript for type safety end-to-end</li>
+        </ul>
+        <h4>Key files</h4>
+        <div class="code">src/app/(dashboard)/layout.tsx   → auth guard + sidebar
+src/components/Sidebar.tsx     → navigation (client)</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header" style="background:#6366f1">🔐 Authentication</div>
+      <div class="card-body">
+        <b>NextAuth.js v4 + JWT sessions</b>
+        <ul>
+          <li>Credentials provider (email + password)</li>
+          <li>Passwords hashed with <b>bcryptjs</b></li>
+          <li>Role-based access: EMPLOYEE / TECHNICIAN / SUPERVISOR / STORE_ADMIN / EHS_OFFICER / ADMIN</li>
+          <li>Middleware protects all dashboard pages</li>
+        </ul>
+        <div class="code">src/lib/auth.ts      → NextAuth config
+src/middleware.ts   → route protection
+src/app/login/      → sign-in page</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header" style="background:#059669">🗄️ Database &amp; ORM</div>
+      <div class="card-body">
+        <b>Prisma ORM 5 → SQLite</b>
+        <ul>
+          <li>Single client singleton (prevents connection leaks in dev)</li>
+          <li>Raw SQL for column-vs-column comparisons (low-stock logic)</li>
+          <li>Transactions for atomic operations (deduct stock + log + link part)</li>
+        </ul>
+        <div class="code">prisma/schema.prisma  → 16 models
+src/lib/prisma.ts    → singleton client
+prisma/seed.ts       → demo data</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header" style="background:#d97706">🔄 Data Flow (Server Actions)</div>
+      <div class="card-body">
+        <b>Mutation pattern</b> — forms submit direct to server actions:
+        <ul>
+          <li>No separate REST endpoints needed for CRUD</li>
+          <li><b>revalidatePath()</b> refreshes UI after mutations</li>
+          <li><b>redirect()</b> after successful operations</li>
+        </ul>
+        <div class="code">async function completeWork(formData) {
+  'use server'
+  // 1. read formData
+  // 2. calculate costs
+  // 3. prisma.maintenanceTicket.update(...)
+  // 4. revalidatePath + redirect
+}</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header" style="background:#db2777">⚡ Cross-cutting Logic</div>
+      <div class="card-body">
+        <h4>Cost Engine (REQ-6.8)</h4>
+        <ul>
+          <li>Parts Cost = Σ(qty × unit price)</li>
+          <li>Labor Cost = hours × rate</li>
+          <li>Total = Parts + Labor + Contractor + Other</li>
+          <li>Rolls up to machine lifetime cost at closure</li>
+        </ul>
+        <h4>Inventory Engine</h4>
+        <ul>
+          <li>Auto-deduct stock when parts logged on a ticket</li>
+          <li>Immutable stock_transactions ledger</li>
+          <li>Low-stock detection using raw SQL</li>
+        </ul>
+        <h4>Reminder Engine</h4>
+        <ul>
+          <li>Triggers on dashboard load</li>
+          <li>Checks PM / AMC / calibration / training due dates</li>
+          <li>Dedup via 24h window; generates in-app notifications</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="card card-dim">
+      <div class="card-header" style="background:#7c3aed">🔮 Future / External Integrations</div>
+      <div class="card-body">
+        <h4>WhatsApp Delivery (REQ-6.11)</h4>
+        <ul>
+          <li>Mechanism not yet decided (Business API vs lighter approach)</li>
+          <li>Schema already has <span class="chip">sent_via_whatsapp</span> + <span class="chip">whatsapp_sent_at</span></li>
+        </ul>
+        <h4>Phase 2 (Purchasing + General Inventory)</h4>
+        <ul>
+          <li>Reuses reorder-signal &amp; inventory design generically</li>
+          <li>Tally sync for finance/inventory</li>
+        </ul>
+        <h4>Photo Uploads / Barcode / Predictive Analytics</h4>
+        <ul>
+          <li>Schema fields exist (photo_url, photo_urls)</li>
+          <li>Deferred to later phases per PRD</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="action"><button onclick="window.print()">🖨️ Print / Save as PDF</button></div>
+  <div class="footer">Aypols Polymers · Technical Architecture · Version 1.0 · Phase 1</div>
+</div>
+</body>
+</html>

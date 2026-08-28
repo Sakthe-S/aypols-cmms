@@ -1,4 +1,4 @@
-import prisma from '@/lib/prisma';
+import { query, toCamel } from '@/lib/db';
 import Link from 'next/link';
 import { getStatusColor, getPriorityColor, formatDate } from '@/lib/utils';
 import { Plus, Search, Filter } from 'lucide-react';
@@ -10,25 +10,42 @@ export default async function TicketsPage({
 }: {
   searchParams: { status?: string; priority?: string; search?: string };
 }) {
-  const where: any = {};
+  const conditions: string[] = [];
+  const params: unknown[] = [];
   if (searchParams.status && searchParams.status !== 'all') {
-    where.status = searchParams.status;
+    params.push(searchParams.status);
+    conditions.push(`t.status = $${params.length}`);
   }
   if (searchParams.priority && searchParams.priority !== 'all') {
-    where.priority = searchParams.priority;
+    params.push(searchParams.priority);
+    conditions.push(`t.priority = $${params.length}`);
   }
   if (searchParams.search) {
-    where.OR = [
-      { ticketNumber: { contains: searchParams.search } },
-      { issueDescription: { contains: searchParams.search } },
-      { category: { contains: searchParams.search } },
-    ];
+    params.push(`%${searchParams.search}%`, `%${searchParams.search}%`, `%${searchParams.search}%`);
+    conditions.push(
+      `(t.ticket_number ILIKE $${params.length - 2} OR t.issue_description ILIKE $${params.length - 1} OR t.category ILIKE $${params.length})`
+    );
   }
+  const whereSql = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-  const tickets = await prisma.maintenanceTicket.findMany({
-    where,
-    orderBy: { createdAt: 'desc' },
-    include: { machine: true, reportedBy: true, assignedTo: true },
+  const rows = await query<Record<string, unknown>>(
+    `SELECT t.*, m.machine_name, r.name AS reported_by_name, a.name AS assigned_to_name
+     FROM maintenance_tickets t
+     JOIN machines m ON m.id = t.machine_id
+     JOIN users r ON r.id = t.reported_by_id
+     LEFT JOIN users a ON a.id = t.assigned_to_id
+     ${whereSql}
+     ORDER BY t.created_at DESC`
+  , params);
+
+  const tickets = rows.map(row => {
+    const r = toCamel(row);
+    return {
+      ...r,
+      machine: { machineName: r.machineName },
+      reportedBy: { name: r.reportedByName },
+      assignedTo: r.assignedToName ? { name: r.assignedToName } : null,
+    };
   });
 
   return (

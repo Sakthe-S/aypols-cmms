@@ -1,51 +1,79 @@
-import prisma from '@/lib/prisma';
+import { query, toCamel } from '@/lib/db';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { FileText, TrendingUp, BarChart3 } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
 
 export default async function ReportsPage() {
-  const machines = await prisma.machine.findMany({
-    include: {
-      _count: { select: { tickets: true } },
-      tickets: { where: { totalRepairCost: { not: null } }, select: { totalRepairCost: true } },
+  const machineRows = await query<Record<string, unknown>>(
+    `SELECT m.*,
+            (SELECT count(*)::int FROM maintenance_tickets t WHERE t.machine_id = m.id) AS ticket_count,
+            (SELECT COALESCE(SUM(t.total_repair_cost), 0)::float8 FROM maintenance_tickets t
+             WHERE t.machine_id = m.id AND t.total_repair_cost IS NOT NULL) AS tickets_total_cost
+     FROM machines m
+     ORDER BY m.lifetime_maintenance_cost DESC`
+  );
+  const machines = machineRows.map(row => {
+    const r = toCamel(row) as any;
+    return {
+      ...r,
+      _count: { tickets: Number(r.ticketCount || 0) },
+      tickets: [{ totalRepairCost: Number(r.ticketsTotalCost || 0) }],
+    };
+  });
+
+  const ticketStatsRaw = await query<{ status: string; count: number }>(
+    `SELECT status, count(*)::int AS count FROM maintenance_tickets GROUP BY status`
+  );
+  const ticketStats = ticketStatsRaw.map(r => ({ status: r.status, _count: r.count }));
+
+  const techRows = await query<Record<string, unknown>>(
+    `SELECT t.assigned_to_id, u.name AS technician_name, count(*)::int AS count,
+            COALESCE(SUM(t.total_repair_cost), 0)::float8 AS total_cost,
+            COALESCE(AVG(t.total_repair_cost), 0)::float8 AS avg_repair_cost,
+            COALESCE(AVG(t.labor_hours), 0)::float8 AS avg_labor_hours
+     FROM maintenance_tickets t
+     LEFT JOIN users u ON u.id = t.assigned_to_id
+     WHERE t.assigned_to_id IS NOT NULL AND t.total_repair_cost IS NOT NULL
+     GROUP BY t.assigned_to_id, u.name
+     ORDER BY count DESC
+     LIMIT 5`
+  );
+  const techUsers = techRows.map(r => ({ id: r.assigned_to_id, name: String(r.technician_name || '-') }));
+  const topTechnicians = techRows.map(r => ({
+    assignedToId: r.assigned_to_id as number,
+    _count: Number(r.count),
+    _avg: {
+      totalRepairCost: Number(r.avg_repair_cost) || null,
+      laborHours: Number(r.avg_labor_hours) || null,
     },
-    orderBy: { lifetimeMaintenanceCost: 'desc' },
-  });
+  }));
 
-  const ticketStats = await prisma.maintenanceTicket.groupBy({
-    by: ['status'],
-    _count: true,
-  });
+  const partsUsedRows = await query<Record<string, unknown>>(
+    `SELECT part_id, count(*)::int AS count,
+            COALESCE(SUM(qty), 0)::float8 AS total_qty,
+            COALESCE(SUM(total_cost), 0)::float8 AS total_cost
+     FROM ticket_spare_parts
+     GROUP BY part_id
+     ORDER BY total_cost DESC
+     LIMIT 10`
+  );
+  const partsUsedIds = partsUsedRows.map(r => Number(r.part_id));
+  const topPartsUsed = partsUsedRows.map(r => ({
+    partId: r.part_id as number,
+    _count: Number(r.count),
+    _sum: { qty: Number(r.total_qty), totalCost: Number(r.total_cost) },
+  }));
 
-  const topTechnicians = await prisma.maintenanceTicket.groupBy({
-    by: ['assignedToId'],
-    where: { assignedToId: { not: null }, totalRepairCost: { not: null } },
-    _count: { _all: true },
-    _sum: { totalRepairCost: true },
-    _avg: { totalRepairCost: true, laborHours: true },
-    orderBy: { _count: { _all: 'desc' } },
-    take: 5,
-  });
-
-  const techUsers = await prisma.user.findMany({
-    where: { id: { in: topTechnicians.map(t => t.assignedToId!) } },
-  });
-
-  const topPartsUsed = await prisma.ticketSparePart.groupBy({
-    by: ['partId'],
-    _sum: { qty: true, totalCost: true },
-    _count: true,
-    orderBy: { _sum: { totalCost: 'desc' } },
-    take: 10,
-  });
-
-  const parts = await prisma.sparePart.findMany({
-    where: { id: { in: topPartsUsed.map(p => p.partId) } },
-  });
+  const parts = partsUsedIds.length > 0
+    ? (await query<Record<string, unknown>>(
+        `SELECT * FROM spare_parts WHERE id = ANY($1)`,
+        [partsUsedIds]
+      )).map(toCamel)
+    : [];
 
   const totalRepairCost = machines.reduce(
-    (sum, m) => sum + m.tickets.reduce((ts, t) => ts + (t.totalRepairCost || 0), 0),
+    (sum, m) => sum + m.tickets.reduce((ts: number, t: any) => ts + (t.totalRepairCost || 0), 0),
     0
   );
 
@@ -129,7 +157,7 @@ export default async function ReportsPage() {
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {machines.map((m) => {
-                  const totalCost = m.tickets.reduce((s, t) => s + (t.totalRepairCost || 0), 0);
+                  const totalCost = m.tickets.reduce((s: number, t: any) => s + (t.totalRepairCost || 0), 0);
                   return (
                     <tr key={m.id} className="hover:bg-gray-50">
                       <td className="px-6 py-3 font-medium">{m.machineName}</td>

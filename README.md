@@ -6,7 +6,7 @@ Factory CMMS, Inventory & EHS management system for Aypols Polymers, Perundurai.
 
 - **Frontend**: Next.js 14 (App Router), React 18, Tailwind CSS
 - **Backend**: Next.js Server Actions + API Routes
-- **Database**: SQLite via Prisma ORM
+- **Database**: PostgreSQL via `pg` (node-postgres)
 - **Auth**: NextAuth.js (Credentials Provider)
 - **Icons**: Lucide React
 
@@ -26,6 +26,7 @@ Factory CMMS, Inventory & EHS management system for Aypols Polymers, Perundurai.
 
 ### Prerequisites
 - Node.js 18+ installed
+- PostgreSQL running locally (default `localhost:5432`)
 - npm or yarn
 
 ### 1. Install Dependencies
@@ -34,14 +35,15 @@ cd "D:\AYPOLS Project\aypols-cmms"
 npm install
 ```
 
-### 2. Initialize Database
-```bash
-npx prisma db push
+### 2. Configure Database
+Create a `aypols` database and set `DATABASE_URL` in `.env`:
+```
+DATABASE_URL="postgresql://postgres:sakthe123@localhost:5432/aypols"
 ```
 
 ### 3. Seed Sample Data
 ```bash
-npx tsx prisma/seed.ts
+npm run db:seed
 ```
 
 ### 4. Start Development Server
@@ -85,15 +87,14 @@ src/
 ├── components/
 │   └── Sidebar.tsx        # Navigation sidebar
 ├── lib/
-│   ├── prisma.ts          # Prisma client singleton
+│   ├── db.ts              # pg connection pool + query helpers
 │   ├── auth.ts            # NextAuth configuration
 │   └── utils.ts           # Utility functions
 ├── types/
 │   └── next-auth.d.ts     # NextAuth type extensions
 └── middleware.ts          # Auth middleware
 prisma/
-├── schema.prisma          # Database schema
-└── seed.ts                # Sample data seeder
+└── seed.ts                # Sample data seeder (uses pg)
 ```
 
 ## Database Schema

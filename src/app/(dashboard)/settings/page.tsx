@@ -1,4 +1,4 @@
-import prisma from '@/lib/prisma';
+import { query, queryOne, execute, toCamel } from '@/lib/db';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { revalidatePath } from 'next/cache';
@@ -12,18 +12,21 @@ export default async function SettingsPage() {
   const userId = Number((session?.user as any)?.id);
   const userRole = (session?.user as any)?.role;
 
-  const currentUser = await prisma.user.findUnique({ where: { id: userId } });
-  const allUsers = await prisma.user.findMany({ orderBy: { name: 'asc' } });
+  const currentUserRow = await queryOne<Record<string, unknown>>(
+    `SELECT * FROM users WHERE id = $1`,
+    [userId]
+  );
+  const currentUser = currentUserRow ? toCamel(currentUserRow) : null;
+  const allUsers = (await query<Record<string, unknown>>(
+    `SELECT * FROM users ORDER BY name ASC`
+  )).map(toCamel);
 
   async function updateProfile(formData: FormData) {
     'use server';
-    await prisma.user.update({
-      where: { id: userId },
-      data: {
-        name: formData.get('name') as string,
-        phone: formData.get('phone') as string || null,
-      },
-    });
+    await execute(
+      `UPDATE users SET name = $1, phone = $2 WHERE id = $3`,
+      [formData.get('name') as string, formData.get('phone') as string || null, userId]
+    );
     revalidatePath('/settings');
     redirect('/settings');
   }
@@ -33,10 +36,10 @@ export default async function SettingsPage() {
     if (userRole !== 'ADMIN') return;
     const targetUserId = Number(formData.get('userId'));
     const newRole = formData.get('role') as string;
-    await prisma.user.update({
-      where: { id: targetUserId },
-      data: { role: newRole },
-    });
+    await execute(
+      `UPDATE users SET role = $1 WHERE id = $2`,
+      [newRole, targetUserId]
+    );
     revalidatePath('/settings');
     redirect('/settings');
   }
@@ -46,10 +49,10 @@ export default async function SettingsPage() {
     if (userRole !== 'ADMIN') return;
     const targetUserId = Number(formData.get('userId'));
     const isActive = formData.get('isActive') === 'true';
-    await prisma.user.update({
-      where: { id: targetUserId },
-      data: { isActive: !isActive },
-    });
+    await execute(
+      `UPDATE users SET is_active = $1 WHERE id = $2`,
+      [!isActive, targetUserId]
+    );
     revalidatePath('/settings');
     redirect('/settings');
   }
@@ -59,10 +62,10 @@ export default async function SettingsPage() {
     if (userRole !== 'ADMIN') return;
     const scheduleId = Number(formData.get('scheduleId'));
     const leadDays = Number(formData.get('leadDays'));
-    await prisma.pmSchedule.update({
-      where: { id: scheduleId },
-      data: { leadDays },
-    });
+    await execute(
+      `UPDATE pm_schedules SET lead_days = $1 WHERE id = $2`,
+      [leadDays, scheduleId]
+    );
     revalidatePath('/settings');
     redirect('/settings');
   }
@@ -70,15 +73,18 @@ export default async function SettingsPage() {
   async function updateDefaultLaborRate(formData: FormData) {
     'use server';
     if (userRole !== 'ADMIN') return;
-    const rate = Number(formData.get('laborRate'));
     // Store in a config - for now we update all open tickets' default
     revalidatePath('/settings');
     redirect('/settings');
   }
 
-  const pmSchedules = await prisma.pmSchedule.findMany({
-    where: { isActive: true },
-    include: { machine: true },
+  const pmSchedules = (await query<Record<string, unknown>>(
+    `SELECT ps.*, m.machine_name
+     FROM pm_schedules ps JOIN machines m ON m.id = ps.machine_id
+     WHERE ps.is_active = true`
+  )).map(row => {
+    const r = toCamel(row);
+    return { ...r, machine: { machineName: r.machineName } };
   });
 
   return (
@@ -311,7 +317,7 @@ export default async function SettingsPage() {
             </div>
             <div>
               <p className="text-xs text-gray-500">Database</p>
-              <p className="font-medium">SQLite (Development)</p>
+              <p className="font-medium">PostgreSQL</p>
             </div>
             <div>
               <p className="text-xs text-gray-500">Active Users</p>

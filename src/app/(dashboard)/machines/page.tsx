@@ -1,4 +1,4 @@
-import prisma from '@/lib/prisma';
+import { query, toCamel } from '@/lib/db';
 import Link from 'next/link';
 import { formatCurrency, formatDate, getStatusColor } from '@/lib/utils';
 import { Plus, Wrench } from 'lucide-react';
@@ -6,11 +6,19 @@ import { Plus, Wrench } from 'lucide-react';
 export const dynamic = 'force-dynamic';
 
 export default async function MachinesPage() {
-  const machines = await prisma.machine.findMany({
-    orderBy: { machineName: 'asc' },
-    include: {
-      _count: { select: { tickets: true } },
-    },
+  const rows = await query<Record<string, unknown>>(
+    `SELECT m.*,
+            (SELECT count(*)::int FROM maintenance_tickets t WHERE t.machine_id = m.id) AS ticket_count
+     FROM machines m
+     ORDER BY m.machine_name ASC`
+  );
+
+  const machines = rows.map(row => {
+    const r = toCamel(row);
+    return {
+      ...r,
+      _count: { tickets: Number(r.ticketCount || 0) },
+    };
   });
 
   return (

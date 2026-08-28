@@ -1,5 +1,5 @@
-import prisma from '@/lib/prisma';
-import { redirect, notFound } from 'next/navigation';
+import { execute } from '@/lib/db';
+import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 
 export const dynamic = 'force-dynamic';
@@ -7,19 +7,20 @@ export const dynamic = 'force-dynamic';
 export default async function NewMachinePage() {
   async function createMachine(formData: FormData) {
     'use server';
-    await prisma.machine.create({
-      data: {
-        machineName: formData.get('machineName') as string,
-        serialNumber: formData.get('serialNumber') as string || undefined,
-        department: formData.get('department') as string || undefined,
-        location: formData.get('location') as string || undefined,
-        manufacturer: formData.get('manufacturer') as string || undefined,
-        model: formData.get('model') as string || undefined,
-        installationDate: formData.get('installationDate')
-          ? new Date(formData.get('installationDate') as string)
-          : undefined,
-      },
-    });
+    const installationDate = formData.get('installationDate');
+    await execute(
+      `INSERT INTO machines (machine_name, serial_number, department, location, manufacturer, model, installation_date)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [
+        formData.get('machineName') as string,
+        formData.get('serialNumber') as string || null,
+        formData.get('department') as string || null,
+        formData.get('location') as string || null,
+        formData.get('manufacturer') as string || null,
+        formData.get('model') as string || null,
+        installationDate ? new Date(installationDate as string) : null,
+      ]
+    );
     redirect('/machines');
   }
 

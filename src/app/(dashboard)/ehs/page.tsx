@@ -1,4 +1,4 @@
-import prisma from '@/lib/prisma';
+import { query, toCamel } from '@/lib/db';
 import { formatDate } from '@/lib/utils';
 import { Shield, BookOpen, Heart, FileCheck } from 'lucide-react';
 import { revalidatePath } from 'next/cache';
@@ -10,19 +10,34 @@ export const dynamic = 'force-dynamic';
 
 export default async function EhsPage() {
   const session = await getServerSession(authOptions);
-  const checklists = await prisma.safetyChecklist.findMany({
-    where: { isActive: true },
-    include: { completions: { orderBy: { completedAt: 'desc' }, take: 3 } },
+
+  const checklistRows = await query<Record<string, unknown>>(
+    `SELECT * FROM safety_checklists WHERE is_active = true`
+  );
+  const completionRows = await query<Record<string, unknown>>(
+    `SELECT * FROM safety_checklist_completions ORDER BY completed_at DESC`
+  );
+  const checklists = checklistRows.map(row => {
+    const r = toCamel(row) as any;
+    r.completions = completionRows.filter((c: any) => c.checklist_id === r.id).map(toCamel);
+    return r;
   });
 
-  const trainings = await prisma.trainingRecord.findMany({
-    where: { isActive: true },
-    include: { completions: true },
+  const trainingRows = await query<Record<string, unknown>>(
+    `SELECT * FROM training_records WHERE is_active = true`
+  );
+  const trainingCompletionRows = await query<Record<string, unknown>>(
+    `SELECT * FROM training_completions`
+  );
+  const trainings = trainingRows.map(row => {
+    const r = toCamel(row) as any;
+    r.completions = trainingCompletionRows.filter((c: any) => c.training_id === r.id).map(toCamel);
+    return r;
   });
 
-  const healthRecords = await prisma.healthComplianceRecord.findMany({
-    where: { isActive: true },
-  });
+  const healthRecords = (await query<Record<string, unknown>>(
+    `SELECT * FROM health_compliance_records WHERE is_active = true`
+  )).map(toCamel);
 
   const now = new Date();
 
@@ -97,7 +112,7 @@ export default async function EhsPage() {
               <tbody className="divide-y divide-gray-100">
                 {trainings.map((tr) => {
                   const assigned = JSON.parse(tr.assignedToIds || '[]');
-                  const completedCount = tr.completions.filter(c => c.status === 'completed').length;
+                  const completedCount = tr.completions.filter((c: any) => c.status === 'completed').length;
                   const isOverdue = tr.nextDueDate && tr.nextDueDate < now;
                   return (
                     <tr key={tr.id} className="hover:bg-gray-50">

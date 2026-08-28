@@ -1,4 +1,4 @@
-import prisma from '@/lib/prisma';
+import { query, execute, toCamel } from '@/lib/db';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { formatDateTime } from '@/lib/utils';
@@ -11,28 +11,28 @@ export default async function NotificationsPage() {
   const session = await getServerSession(authOptions);
   const userId = Number((session?.user as any)?.id);
 
-  const notifications = await prisma.notification.findMany({
-    where: { userId },
-    orderBy: { createdAt: 'desc' },
-  });
+  const notifications = (await query<Record<string, unknown>>(
+    `SELECT * FROM notifications WHERE user_id = $1 ORDER BY created_at DESC`,
+    [userId]
+  )).map(toCamel);
 
-  const unreadCount = notifications.filter(n => !n.isRead).length;
+  const unreadCount = notifications.filter(n => !(n as any).isRead).length;
 
   async function markAllRead() {
     'use server';
-    await prisma.notification.updateMany({
-      where: { userId, isRead: false },
-      data: { isRead: true },
-    });
+    await execute(
+      `UPDATE notifications SET is_read = true WHERE user_id = $1 AND is_read = false`,
+      [userId]
+    );
     revalidatePath('/notifications');
   }
 
   async function markRead(id: number) {
     'use server';
-    await prisma.notification.update({
-      where: { id },
-      data: { isRead: true },
-    });
+    await execute(
+      `UPDATE notifications SET is_read = true WHERE id = $1`,
+      [id]
+    );
     revalidatePath('/notifications');
   }
 

@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Aypols CMMS - Database Architecture (ERD)</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', Arial, sans-serif;
+    background: #0f172a;
+    color: #e2e8f0;
+    padding: 40px;
+  }
+  .page {
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+  h1 {
+    text-align: center;
+    color: #fff;
+    font-size: 30px;
+    margin-bottom: 4px;
+  }
+  .subtitle {
+    text-align: center;
+    color: #94a3b8;
+    font-size: 14px;
+    margin-bottom: 30px;
+  }
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 18px;
+    justify-content: center;
+    margin-bottom: 34px;
+  }
+  .legend-item { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+  .swatch { width: 16px; height: 16px; border-radius: 4px; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 20px;
+  }
+  .module {
+    background: #fff;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 6px 24px rgba(0,0,0,.35);
+    color: #1e293b;
+    display: flex;
+    flex-direction: column;
+  }
+  .module-header {
+    padding: 10px 16px;
+    color: #fff;
+    font-weight: 700;
+    font-size: 15px;
+    letter-spacing: .3px;
+  }
+  .module-body { padding: 4px 0; }
+  .table-row {
+    padding: 10px 16px;
+    border-top: 1px solid #f1f5f9;
+  }
+  .table-row:first-child { border-top: none; }
+  .table-name { font-weight: 700; font-size: 13px; color: #0f172a; display: flex; justify-content: space-between; }
+  .table-name .type { font-weight: 400; color: #94a3b8; font-size: 11px; font-style: italic; }
+  .fields {
+    margin-top: 6px;
+    font-family: 'Consolas', monospace;
+    font-size: 11px;
+    color: #475569;
+    line-height: 1.6;
+  }
+  .fields span { display: block; }
+  .pk { color: #059669; font-weight: 700; }
+  .fk { color: #2563eb; }
+  .rel {
+    margin-top: 8px;
+    font-family: 'Consolas', monospace;
+    font-size: 10.5px;
+    color: #7c3aed;
+    background: #f5f3ff;
+    border-radius: 6px;
+    padding: 6px 8px;
+    line-height: 1.5;
+    border: 1px solid #ede9fe;
+  }
+  .footer { text-align: center; color: #64748b; font-size: 12px; margin-top: 36px; }
+  .action {
+    text-align: center; margin: 30px 0 10px;
+  }
+  .action button {
+    background: #3b82f6; color: #fff; border: none; padding: 12px 28px;
+    border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer;
+  }
+  .action button:hover { background: #2563eb; }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>🗄️ Aypols CMMS — Database Architecture</h1>
+  <div class="subtitle">16 Tables · 7 Modules · SQLite / Prisma ORM · Phase 1 (Maintenance &amp; EHS)</div>
+
+  <div class="legend">
+    <div class="legend-item"><span class="swatch" style="background:#3b82f6"></span> Users &amp; Auth</div>
+    <div class="legend-item"><span class="swatch" style="background:#6366f1"></span> Machines</div>
+    <div class="legend-item"><span class="swatch" style="background:#d97706"></span> Maintenance Tickets</div>
+    <div class="legend-item"><span class="swatch" style="background:#059669"></span> Inventory</div>
+    <div class="legend-item"><span class="swatch" style="background:#db2777"></span> PM / AMC / Calibration</div>
+    <div class="legend-item"><span class="swatch" style="background:#7c3aed"></span> EHS</div>
+    <div class="legend-item"><span class="swatch" style="background:#dc2626"></span> Notifications</div>
+  </div>
+
+  <div class="grid" id="grid"></div>
+
+  <div class="action"><button onclick="window.print()">🖨️ Print / Save as PDF</button></div>
+  <div class="footer">Aypols Polymers · Maintenance &amp; EHS Management System · Version 1.0 · Phase 1</div>
+</div>
+
+<script>
+const modules = [
+  {
+    title: '👥 Users & Auth', color: '#3b82f6',
+    tables: [
+      { name: 'users', fields: [['id','PK'],['name'],['email','UNIQUE'],['password_hash'],['role'],['trade'],['phone'],['is_active']],
+        rel: ['1 ── ∞ tickets (reported/assigned/verified)','1 ── ∞ progress_logs, stock_transactions, notifications'] }
+    ]
+  },
+  {
+    title: '🏭 Machines', color: '#6366f1',
+    tables: [
+      { name: 'machines', fields: [['id','PK'],['machine_name'],['serial_number'],['department'],['location'],['manufacturer'],['model'],['current_status'],['lifetime_maintenance_cost']],
+        rel: ['1 ── ∞ maintenance_tickets','1 ── ∞ pm_schedules, amc_records, calibration_records'] }
+    ]
+  },
+  {
+    title: '🔧 Maintenance Tickets', color: '#d97706',
+    tables: [
+      { name: 'maintenance_tickets', fields: [['id','PK'],['ticket_number','UNIQUE'],['machine_id','FK'],['reported_by_id','FK'],['priority'],['category'],['issue_description'],['status'],['assigned_to_id','FK'],['start_time'],['end_time'],['downtime_minutes'],['diagnosis'],['root_cause'],['labor_cost'],['parts_cost'],['contractor_charges'],['total_repair_cost'],['closure_verified_by_id','FK']],
+        rel: ['∞ ── 1 machines','∞ ── 1 users (reporter/assignee/verifier)','1 ── ∞ ticket_progress_logs, ticket_spare_parts'] },
+      { name: 'ticket_progress_logs', fields: [['id','PK'],['ticket_id','FK'],['user_id','FK'],['notes'],['log_type']],
+        rel: ['∞ ── 1 maintenance_tickets','∞ ── 1 users'] },
+      { name: 'ticket_spare_parts', fields: [['id','PK'],['ticket_id','FK'],['part_id','FK'],['qty'],['unit_price'],['total_cost']],
+        rel: ['∞ ── 1 maintenance_tickets','∞ ── 1 spare_parts','auto-deducts stock'] }
+    ]
+  },
+  {
+    title: '📦 Spare Parts Inventory', color: '#059669',
+    tables: [
+      { name: 'spare_parts', fields: [['id','PK'],['part_code','UNIQUE'],['part_name'],['category'],['unit'],['purchase_rate'],['current_qty'],['min_threshold'],['reorder_qty'],['storage_room'],['rack_bin'],['supplier']],
+        rel: ['1 ── ∞ stock_transactions, ticket_spare_parts','low-stock: current_qty ≤ min_threshold'] },
+      { name: 'stock_transactions', fields: [['id','PK'],['part_id','FK'],['transaction_type'],['quantity'],['reference_ticket_id','FK'],['reason'],['from_location'],['to_location'],['user_id','FK']],
+        rel: ['∞ ── 1 spare_parts','∞ ── 1 users','in / out / transfer / adjustment'] }
+    ]
+  },
+  {
+    title: '📅 PM · AMC · Calibration', color: '#db2777',
+    tables: [
+      { name: 'pm_schedules', fields: [['id','PK'],['machine_id','FK'],['task_name'],['frequency'],['checklist_items'],['lead_days'],['next_due_date']],
+        rel: ['∞ ── 1 machines','1 ── ∞ pm_logs'] },
+      { name: 'pm_logs', fields: [['id','PK'],['schedule_id','FK'],['ticket_id','FK'],['completed_by_id','FK'],['status'],['next_due_date']],
+        rel: ['∞ ── 1 pm_schedules','∞ ── 1 users'] },
+      { name: 'amc_records', fields: [['id','PK'],['machine_id','FK'],['vendor_name'],['start_date'],['end_date'],['cost'],['next_service_date'],['lead_days']],
+        rel: ['∞ ── 1 machines','annual maintenance contracts'] },
+      { name: 'calibration_records', fields: [['id','PK'],['machine_id','FK'],['instrument_name'],['frequency'],['last_calibration'],['next_due_date'],['lab_name'],['lead_days']],
+        rel: ['∞ ── 1 machines','6-month / yearly calibration'] }
+    ]
+  },
+  {
+    title: '🛡️ EHS', color: '#7c3aed',
+    tables: [
+      { name: 'safety_checklists', fields: [['id','PK'],['name'],['job_type'],['checklist_items'],['is_active']],
+        rel: ['1 ── ∞ safety_checklist_completions','per-job-type templates'] },
+      { name: 'safety_checklist_completions', fields: [['id','PK'],['checklist_id','FK'],['ticket_id','FK'],['completed_by_id','FK'],['is_approved'],['override_by_id','FK'],['override_reason'],['responses']],
+        rel: ['∞ ── 1 safety_checklists','∞ ── 1 maintenance_tickets','safety gate before work'] },
+      { name: 'training_records', fields: [['id','PK'],['training_name'],['training_type'],['frequency'],['next_due_date'],['lead_days'],['assigned_to_ids'],['document_url']],
+        rel: ['1 ── ∞ training_completions'] },
+      { name: 'training_completions', fields: [['id','PK'],['training_id','FK'],['user_id','FK'],['completed_at'],['proof_document'],['status']],
+        rel: ['∞ ── 1 training_records','∞ ── 1 users','pending / completed / overdue'] },
+      { name: 'health_compliance_records', fields: [['id','PK'],['record_name'],['record_type'],['frequency'],['next_due_date'],['lead_days'],['document_url']],
+        rel: ['health / license / legal renewals'] }
+    ]
+  },
+  {
+    title: '🔔 Notifications', color: '#dc2626',
+    tables: [
+      { name: 'notifications', fields: [['id','PK'],['user_id','FK'],['title'],['message'],['type'],['link_url'],['is_read'],['sent_via_whatsapp']],
+        rel: ['∞ ── 1 users','in-app + WhatsApp delivery'] }
+    ]
+  }
+];
+
+const grid = document.getElementById('grid');
+modules.forEach(mod => {
+  const card = document.createElement('div');
+  card.className = 'module';
+  let html = '<div class="module-header" style="background:'+mod.color+'">'+mod.title+'</div><div class="module-body">';
+  mod.tables.forEach(t => {
+    html += '<div class="table-row">';
+    html += '<div class="table-name">'+t.name+'<span class="type">TABLE</span></div>';
+    html += '<div class="fields">';
+    t.fields.forEach(f => {
+      const isPk = f[1] === 'PK', isFk = (f[1]||'').includes('FK'), isU = f[1]==='UNIQUE';
+      let cls = '';
+      if (isPk) cls='pk'; else if (isFk) cls='fk';
+      let tag = '';
+      if (isPk) tag=' 🔑'; else if (isU) tag=' ✦'; else if (isFk) tag=' 🔗';
+      html += '<span class="'+cls+'">• '+f[0]+tag+'</span>';
+    });
+    html += '</div>';
+    t.rel.forEach(r => { html += '<div class="rel">'+r+'</div>'; });
+    html += '</div>';
+  });
+  html += '</div>';
+  card.innerHTML = html;
+  grid.appendChild(card);
+});
+</script>
+</body>
+</html>

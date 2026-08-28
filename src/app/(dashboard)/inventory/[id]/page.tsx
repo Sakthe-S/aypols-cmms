@@ -1,4 +1,4 @@
-import prisma from '@/lib/prisma';
+import { query, queryOne, execute, withTransaction, toCamel } from '@/lib/db';
 import { notFound } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
@@ -14,21 +14,45 @@ export default async function PartDetailPage({ params }: { params: { id: string 
   const userId = Number((session?.user as any)?.id);
   const partId = Number(params.id);
 
-  const part = await prisma.sparePart.findUnique({
-    where: { id: partId },
-    include: {
-      stockTransactions: {
-        orderBy: { createdAt: 'desc' },
-        take: 20,
-        include: { user: true },
-      },
-      ticketUsage: {
-        orderBy: { createdAt: 'desc' },
-        take: 10,
-        include: { ticket: true },
-      },
-    },
-  });
+  const partRow = await queryOne<Record<string, unknown>>(
+    `SELECT * FROM spare_parts WHERE id = $1`,
+    [partId]
+  );
+
+  if (!partRow) notFound();
+
+  const [txRows, usageRows] = await Promise.all([
+    query<Record<string, unknown>>(
+      `SELECT st.*, u.name AS user_name
+       FROM stock_transactions st
+       JOIN users u ON u.id = st.user_id
+       WHERE st.part_id = $1
+       ORDER BY st.created_at DESC
+       LIMIT 20`,
+      [partId]
+    ),
+    query<Record<string, unknown>>(
+      `SELECT tsp.*, t.ticket_number
+       FROM ticket_spare_parts tsp
+       JOIN maintenance_tickets t ON t.id = tsp.ticket_id
+       WHERE tsp.part_id = $1
+       ORDER BY tsp.created_at DESC
+       LIMIT 10`,
+      [partId]
+    ),
+  ]);
+
+  const part: any = {
+    ...toCamel(partRow),
+    stockTransactions: txRows.map(row => ({
+      ...toCamel(row),
+      user: { name: row['user_name'] },
+    })),
+    ticketUsage: usageRows.map(row => ({
+      ...toCamel(row),
+      ticket: { ticketNumber: row['ticket_number'] },
+    })),
+  };
 
   if (!part) notFound();
   const isLow = part.currentQty <= part.minThreshold;
@@ -37,21 +61,17 @@ export default async function PartDetailPage({ params }: { params: { id: string 
     'use server';
     const qty = parseFloat(formData.get('quantity') as string);
     const reason = formData.get('reason') as string;
-    await prisma.$transaction([
-      prisma.sparePart.update({
-        where: { id: partId },
-        data: { currentQty: { increment: qty } },
-      }),
-      prisma.stockTransaction.create({
-        data: {
-          partId,
-          transactionType: 'stock_in',
-          quantity: qty,
-          reason,
-          userId,
-        },
-      }),
-    ]);
+    await withTransaction(async (tx) => {
+      await tx.query(
+        `UPDATE spare_parts SET current_qty = current_qty + $1 WHERE id = $2`,
+        [qty, partId]
+      );
+      await tx.query(
+        `INSERT INTO stock_transactions (part_id, transaction_type, quantity, reason, user_id)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [partId, 'stock_in', qty, reason, userId]
+      );
+    });
     revalidatePath(`/inventory/${partId}`);
     redirect(`/inventory/${partId}`);
   }
@@ -61,25 +81,24 @@ export default async function PartDetailPage({ params }: { params: { id: string 
     const qty = parseFloat(formData.get('quantity') as string);
     const reason = formData.get('reason') as string;
 
-    const currentPart = await prisma.sparePart.findUnique({ where: { id: partId } });
+    const currentPart = await queryOne<any>(
+      `SELECT * FROM spare_parts WHERE id = $1`,
+      [partId]
+    );
     if (!currentPart) throw new Error('Part not found');
-    if (currentPart.currentQty < qty) throw new Error(`Insufficient stock. Available: ${currentPart.currentQty} ${currentPart.unit}`);
+    if (currentPart.current_qty < qty) throw new Error(`Insufficient stock. Available: ${currentPart.current_qty} ${currentPart.unit}`);
 
-    await prisma.$transaction([
-      prisma.sparePart.update({
-        where: { id: partId },
-        data: { currentQty: { decrement: qty } },
-      }),
-      prisma.stockTransaction.create({
-        data: {
-          partId,
-          transactionType: 'stock_out',
-          quantity: qty,
-          reason,
-          userId,
-        },
-      }),
-    ]);
+    await withTransaction(async (tx) => {
+      await tx.query(
+        `UPDATE spare_parts SET current_qty = current_qty - $1 WHERE id = $2`,
+        [qty, partId]
+      );
+      await tx.query(
+        `INSERT INTO stock_transactions (part_id, transaction_type, quantity, reason, user_id)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [partId, 'stock_out', qty, reason, userId]
+      );
+    });
     revalidatePath(`/inventory/${partId}`);
     redirect(`/inventory/${partId}`);
   }
@@ -90,24 +109,23 @@ export default async function PartDetailPage({ params }: { params: { id: string 
     const toLocation = formData.get('toLocation') as string;
     const reason = formData.get('reason') as string;
 
-    const currentPart = await prisma.sparePart.findUnique({ where: { id: partId } });
+    const currentPart = await queryOne<any>(
+      `SELECT * FROM spare_parts WHERE id = $1`,
+      [partId]
+    );
     if (!currentPart) throw new Error('Part not found');
-    if (currentPart.currentQty < qty) throw new Error(`Insufficient stock. Available: ${currentPart.currentQty} ${currentPart.unit}`);
+    if (currentPart.current_qty < qty) throw new Error(`Insufficient stock. Available: ${currentPart.current_qty} ${currentPart.unit}`);
 
-    await prisma.stockTransaction.create({
-      data: {
-        partId,
-        transactionType: 'transfer',
-        quantity: qty,
-        fromLocation: currentPart.storageRoom,
-        toLocation,
-        reason,
-        userId,
-      },
-    });
-    await prisma.sparePart.update({
-      where: { id: partId },
-      data: { storageRoom: toLocation },
+    await withTransaction(async (tx) => {
+      await tx.query(
+        `INSERT INTO stock_transactions (part_id, transaction_type, quantity, from_location, to_location, reason, user_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [partId, 'transfer', qty, currentPart.storage_room, toLocation, reason, userId]
+      );
+      await tx.query(
+        `UPDATE spare_parts SET storage_room = $1 WHERE id = $2`,
+        [toLocation, partId]
+      );
     });
     revalidatePath(`/inventory/${partId}`);
     redirect(`/inventory/${partId}`);
@@ -240,7 +258,7 @@ export default async function PartDetailPage({ params }: { params: { id: string 
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {part.stockTransactions.map((tx) => (
+                  {part.stockTransactions.map((tx: any) => (
                     <tr key={tx.id} className="hover:bg-gray-50">
                       <td className="px-6 py-3 text-gray-500">{formatDateTime(tx.createdAt)}</td>
                       <td className="px-6 py-3">
@@ -288,7 +306,7 @@ export default async function PartDetailPage({ params }: { params: { id: string 
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {part.ticketUsage.map((usage) => (
+                    {part.ticketUsage.map((usage: any) => (
                       <tr key={usage.id}>
                         <td className="px-6 py-3">
                           <a href={`/tickets/${usage.ticketId}`} className="text-primary-600 hover:underline">

@@ -1,4 +1,4 @@
-import prisma from '@/lib/prisma';
+import { query, queryOne, execute, withTransaction, toCamel } from '@/lib/db';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { redirect, notFound } from 'next/navigation';
@@ -18,6 +18,19 @@ import {
 
 export const dynamic = 'force-dynamic';
 
+type TicketRow = Record<string, unknown>;
+
+function buildTicket(row: TicketRow) {
+  const r = toCamel(row);
+  return {
+    ...r,
+    machine: { ...(row['machine_machine_id'] != null ? { id: row['machine_machine_id'] } : {}), machineName: r.machineMachineName },
+    reportedBy: { name: r.reporterName },
+    assignedTo: row['assigned_name'] != null ? { id: row['assigned_id'], name: r.assignedName } : null,
+    closureVerifiedBy: row['verifier_name'] != null ? { name: r.verifierName } : null,
+  };
+}
+
 export default async function TicketDetailPage({
   params,
 }: {
@@ -28,40 +41,76 @@ export default async function TicketDetailPage({
   const userId = Number((session?.user as any)?.id);
   const ticketId = Number(params.id);
 
-  const ticket = await prisma.maintenanceTicket.findUnique({
-    where: { id: ticketId },
-    include: {
-      machine: true,
-      reportedBy: true,
-      assignedTo: true,
-      closureVerifiedBy: true,
-      sparePartsUsed: { include: { part: true } },
-      progressLogs: { include: { user: true }, orderBy: { createdAt: 'desc' } },
-    },
-  });
+  const ticketRow = await queryOne<TicketRow>(
+    `SELECT t.*,
+            m.machine_name AS machine_machine_name, m.id AS machine_machine_id,
+            r.name AS reporter_name,
+            a.name AS assigned_name, a.id AS assigned_id,
+            v.name AS verifier_name
+     FROM maintenance_tickets t
+     JOIN machines m ON m.id = t.machine_id
+     JOIN users r ON r.id = t.reported_by_id
+     LEFT JOIN users a ON a.id = t.assigned_to_id
+     LEFT JOIN users v ON v.id = t.closure_verified_by_id
+     WHERE t.id = $1`,
+    [ticketId]
+  );
 
-  if (!ticket) notFound();
+  if (!ticketRow) notFound();
 
-  const spareParts = await prisma.sparePart.findMany({
-    orderBy: { partName: 'asc' },
-  });
+  const ticket = buildTicket(ticketRow) as any & {
+    sparePartsUsed: any[];
+    progressLogs: any[];
+  };
 
-  const technicians = await prisma.user.findMany({
-    where: { role: { in: ['TECHNICIAN', 'SUPERVISOR'] } },
-    orderBy: { name: 'asc' },
-  });
+  const sparePartsRows = await query<Record<string, unknown>>(
+    `SELECT tsp.*, p.part_name, p.part_code, p.unit
+     FROM ticket_spare_parts tsp
+     JOIN spare_parts p ON p.id = tsp.part_id
+     WHERE tsp.ticket_id = $1
+     ORDER BY tsp.created_at DESC`,
+    [ticketId]
+  );
+  ticket.sparePartsUsed = sparePartsRows.map(row => ({
+    ...toCamel(row),
+    part: { partName: row['part_name'], partCode: row['part_code'], unit: row['unit'] },
+  }));
+
+  const logRows = await query<Record<string, unknown>>(
+    `SELECT l.*, u.name AS user_name
+     FROM ticket_progress_logs l
+     JOIN users u ON u.id = l.user_id
+     WHERE l.ticket_id = $1
+     ORDER BY l.created_at DESC`,
+    [ticketId]
+  );
+  ticket.progressLogs = logRows.map(row => ({
+    ...toCamel(row),
+    user: { name: row['user_name'] },
+  }));
+
+  const spareParts = (await query<Record<string, unknown>>(
+    `SELECT * FROM spare_parts ORDER BY part_name ASC`
+  )).map(toCamel);
+
+  const technicians = (await query<Record<string, unknown>>(
+    `SELECT * FROM users WHERE role = ANY($1) ORDER BY name ASC`,
+    [['TECHNICIAN', 'SUPERVISOR']]
+  )).map(toCamel);
 
   // Safety checklist gate
   const applicableChecklist = ticket.category
-    ? await prisma.safetyChecklist.findFirst({
-        where: { jobType: ticket.category, isActive: true },
-      })
+    ? await queryOne<any>(
+        `SELECT * FROM safety_checklists WHERE job_type = $1 AND is_active = true LIMIT 1`,
+        [ticket.category]
+      )
     : null;
 
   const hasChecklistCompletion = applicableChecklist
-    ? await prisma.safetyChecklistCompletion.findFirst({
-        where: { checklistId: applicableChecklist.id, ticketId: ticketId },
-      })
+    ? await queryOne<{ id: number }>(
+        `SELECT id FROM safety_checklist_completions WHERE checklist_id = $1 AND ticket_id = $2 LIMIT 1`,
+        [applicableChecklist.id, ticketId]
+      )
     : null;
 
   const canAddParts = ['in_progress', 'allocated'].includes(ticket.status);
@@ -71,26 +120,28 @@ export default async function TicketDetailPage({
   async function allocateTicket(formData: FormData) {
     'use server';
     const assignedToId = Number(formData.get('assignedToId'));
-    await prisma.maintenanceTicket.update({
-      where: { id: ticketId },
-      data: { assignedToId, status: 'allocated', allocatedDate: new Date() },
-    });
-    await prisma.ticketProgressLog.create({
-      data: { ticketId, userId, notes: `Ticket allocated to technician`, logType: 'status_change' },
-    });
+    await execute(
+      `UPDATE maintenance_tickets SET assigned_to_id = $1, status = 'allocated', allocated_date = NOW() WHERE id = $2`,
+      [assignedToId, ticketId]
+    );
+    await execute(
+      `INSERT INTO ticket_progress_logs (ticket_id, user_id, notes, log_type) VALUES ($1, $2, $3, $4)`,
+      [ticketId, userId, 'Ticket allocated to technician', 'status_change']
+    );
     revalidatePath(`/tickets/${ticketId}`);
     redirect(`/tickets/${ticketId}`);
   }
 
   async function startWork() {
     'use server';
-    await prisma.maintenanceTicket.update({
-      where: { id: ticketId },
-      data: { status: 'in_progress', startTime: new Date() },
-    });
-    await prisma.ticketProgressLog.create({
-      data: { ticketId, userId, notes: `Work started`, logType: 'status_change' },
-    });
+    await execute(
+      `UPDATE maintenance_tickets SET status = 'in_progress', start_time = NOW() WHERE id = $1`,
+      [ticketId]
+    );
+    await execute(
+      `INSERT INTO ticket_progress_logs (ticket_id, user_id, notes, log_type) VALUES ($1, $2, $3, $4)`,
+      [ticketId, userId, 'Work started', 'status_change']
+    );
     revalidatePath(`/tickets/${ticketId}`);
     redirect(`/tickets/${ticketId}`);
   }
@@ -98,7 +149,7 @@ export default async function TicketDetailPage({
   async function completeSafetyChecklist(formData: FormData) {
     'use server';
     if (!applicableChecklist) return;
-    const items = JSON.parse(applicableChecklist.checklistItems);
+    const items = JSON.parse(applicableChecklist.checklist_items as string);
     const responses = items.map((item: string, i: number) => ({
       item,
       checked: formData.get(`check_${i}`) === 'on',
@@ -106,24 +157,21 @@ export default async function TicketDetailPage({
     }));
     const allChecked = responses.every((r: any) => r.checked);
 
-    await prisma.safetyChecklistCompletion.create({
-      data: {
-        checklistId: applicableChecklist.id,
-        ticketId,
-        completedById: userId,
-        isApproved: allChecked,
-        responses: JSON.stringify(responses),
-      },
-    });
+    await execute(
+      `INSERT INTO safety_checklist_completions (checklist_id, ticket_id, completed_by_id, is_approved, responses)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [applicableChecklist.id, ticketId, userId, allChecked, JSON.stringify(responses)]
+    );
 
-    await prisma.ticketProgressLog.create({
-      data: {
+    await execute(
+      `INSERT INTO ticket_progress_logs (ticket_id, user_id, notes, log_type) VALUES ($1, $2, $3, $4)`,
+      [
         ticketId,
         userId,
-        notes: `Safety checklist completed: ${allChecked ? 'All items passed' : 'Some items failed - requires supervisor override'}`,
-        logType: 'status_change',
-      },
-    });
+        `Safety checklist completed: ${allChecked ? 'All items passed' : 'Some items failed - requires supervisor override'}`,
+        'status_change',
+      ]
+    );
 
     revalidatePath(`/tickets/${ticketId}`);
     redirect(`/tickets/${ticketId}`);
@@ -134,26 +182,24 @@ export default async function TicketDetailPage({
     if (!applicableChecklist) return;
     const reason = formData.get('reason') as string;
 
-    await prisma.safetyChecklistCompletion.create({
-      data: {
-        checklistId: applicableChecklist.id,
-        ticketId,
-        completedById: userId,
-        overrideById: userId,
-        overrideReason: reason,
-        isApproved: true,
-        responses: JSON.stringify([{ item: 'Override', checked: true, notes: reason }]),
-      },
-    });
-
-    await prisma.ticketProgressLog.create({
-      data: {
+    await execute(
+      `INSERT INTO safety_checklist_completions (checklist_id, ticket_id, completed_by_id, override_by_id, override_reason, is_approved, responses)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [
+        applicableChecklist.id,
         ticketId,
         userId,
-        notes: `Safety checklist overridden by supervisor. Reason: ${reason}`,
-        logType: 'status_change',
-      },
-    });
+        userId,
+        reason,
+        true,
+        JSON.stringify([{ item: 'Override', checked: true, notes: reason }]),
+      ]
+    );
+
+    await execute(
+      `INSERT INTO ticket_progress_logs (ticket_id, user_id, notes, log_type) VALUES ($1, $2, $3, $4)`,
+      [ticketId, userId, `Safety checklist overridden by supervisor. Reason: ${reason}`, 'status_change']
+    );
 
     revalidatePath(`/tickets/${ticketId}`);
     redirect(`/tickets/${ticketId}`);
@@ -164,41 +210,38 @@ export default async function TicketDetailPage({
     const partId = Number(formData.get('partId'));
     const qty = parseFloat(formData.get('qty') as string);
 
-    const part = await prisma.sparePart.findUnique({ where: { id: partId } });
-    if (!part) throw new Error('Part not found');
-    if (part.currentQty < qty) throw new Error(`Insufficient stock. Available: ${part.currentQty} ${part.unit}`);
+    await withTransaction(async (tx) => {
+      const partRes = await tx.query<Record<string, unknown>>(
+        `SELECT * FROM spare_parts WHERE id = $1`,
+        [partId]
+      );
+      const part = partRes.rows[0] as any;
+      if (!part) throw new Error('Part not found');
+      if (part.current_qty < qty) throw new Error(`Insufficient stock. Available: ${part.current_qty} ${part.unit}`);
 
-    const totalCost = qty * part.purchaseRate;
+      const totalCost = qty * Number(part.purchase_rate);
 
-    await prisma.$transaction([
-      prisma.ticketSparePart.create({
-        data: {
-          ticketId,
-          partId,
-          qty,
-          unitPrice: part.purchaseRate,
-          totalCost,
-          userId,
-        },
-      }),
-      prisma.sparePart.update({
-        where: { id: partId },
-        data: { currentQty: { decrement: qty } },
-      }),
-      prisma.stockTransaction.create({
-        data: {
-          partId,
-          transactionType: 'stock_out',
-          quantity: qty,
-          reason: `Issued for ticket ${ticket.ticketNumber}`,
-          referenceTicketId: ticketId,
-          userId,
-        },
-      }),
-    ]);
-    await prisma.ticketProgressLog.create({
-      data: { ticketId, userId, notes: `Added ${qty} ${part.unit} of ${part.partName} (₹${totalCost.toLocaleString('en-IN')})`, logType: 'parts_request' },
+      await tx.query(
+        `INSERT INTO ticket_spare_parts (ticket_id, part_id, qty, unit_price, total_cost, user_id)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [ticketId, partId, qty, part.purchase_rate, totalCost, userId]
+      );
+      await tx.query(
+        `UPDATE spare_parts SET current_qty = current_qty - $1 WHERE id = $2`,
+        [qty, partId]
+      );
+      await tx.query(
+        `INSERT INTO stock_transactions (part_id, transaction_type, quantity, reason, reference_ticket_id, user_id)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [partId, 'stock_out', qty, `Issued for ticket ${ticket.ticketNumber}`, ticketId, userId]
+      );
+
+      await tx.query(
+        `INSERT INTO ticket_progress_logs (ticket_id, user_id, notes, log_type) VALUES ($1, $2, $3, $4)`,
+        [ticketId, userId, `Added ${qty} ${part.unit} of ${part.part_name} (₹${totalCost.toLocaleString('en-IN')})`, 'parts_request']
+      );
     });
+
     revalidatePath(`/tickets/${ticketId}`);
     redirect(`/tickets/${ticketId}`);
   }
@@ -206,9 +249,10 @@ export default async function TicketDetailPage({
   async function addProgressNote(formData: FormData) {
     'use server';
     const notes = formData.get('notes') as string;
-    await prisma.ticketProgressLog.create({
-      data: { ticketId, userId, notes, logType: 'note' },
-    });
+    await execute(
+      `INSERT INTO ticket_progress_logs (ticket_id, user_id, notes, log_type) VALUES ($1, $2, $3, $4)`,
+      [ticketId, userId, notes, 'note']
+    );
     revalidatePath(`/tickets/${ticketId}`);
     redirect(`/tickets/${ticketId}`);
   }
@@ -223,78 +267,72 @@ export default async function TicketDetailPage({
     const contractorCharges = parseFloat(formData.get('contractorCharges') as string) || 0;
     const otherCosts = parseFloat(formData.get('otherCosts') as string) || 0;
 
-    const currentParts = await prisma.ticketSparePart.findMany({
-      where: { ticketId },
-    });
-    const partsCost = currentParts.reduce((sum, p) => sum + p.totalCost, 0);
+    const currentParts = await query<{ total_cost: number }>(
+      `SELECT total_cost FROM ticket_spare_parts WHERE ticket_id = $1`,
+      [ticketId]
+    );
+    const partsCost = currentParts.reduce((sum, p) => sum + Number(p.total_cost), 0);
     const laborCost = laborHours * laborRate;
     const totalRepairCost = partsCost + laborCost + contractorCharges + otherCosts;
 
     const endTime = new Date();
-    const startTime = ticket.startTime || new Date();
+    const startTime = ticket.startTime ? new Date(ticket.startTime) : new Date();
     const downtimeMinutes = Math.round((endTime.getTime() - startTime.getTime()) / 60000);
 
-    await prisma.maintenanceTicket.update({
-      where: { id: ticketId },
-      data: {
-        status: 'completed',
-        diagnosis,
-        rootCause,
-        actionsTaken,
-        laborHours,
-        laborRatePerHour: laborRate,
-        laborCost,
-        contractorCharges,
-        otherCosts,
-        partsCost,
-        totalRepairCost,
-        endTime,
-        downtimeMinutes,
-      },
-    });
-    await prisma.ticketProgressLog.create({
-      data: { ticketId, userId, notes: `Work completed. Total cost: ${formatCurrency(totalRepairCost)}`, logType: 'status_change' },
-    });
+    await execute(
+      `UPDATE maintenance_tickets SET
+         status = 'completed', diagnosis = $1, rootcause = $2, actions_taken = $3,
+         labor_hours = $4, labor_rate_per_hour = $5, labor_cost = $6,
+         contractor_charges = $7, other_costs = $8, parts_cost = $9, total_repair_cost = $10,
+         end_time = $11, downtime_minutes = $12
+       WHERE id = $13`,
+      [diagnosis, rootCause, actionsTaken, laborHours, laborRate, laborCost, contractorCharges, otherCosts, partsCost, totalRepairCost, endTime, downtimeMinutes, ticketId]
+    );
+    await execute(
+      `INSERT INTO ticket_progress_logs (ticket_id, user_id, notes, log_type) VALUES ($1, $2, $3, $4)`,
+      [ticketId, userId, `Work completed. Total cost: ${formatCurrency(totalRepairCost)}`, 'status_change']
+    );
     revalidatePath(`/tickets/${ticketId}`);
     redirect(`/tickets/${ticketId}`);
   }
 
   async function verifyAndClose() {
     'use server';
-    const finalParts = await prisma.ticketSparePart.findMany({
-      where: { ticketId },
-    });
-    const partsCost = finalParts.reduce((sum, p) => sum + p.totalCost, 0);
+    const finalParts = await query<{ total_cost: number }>(
+      `SELECT total_cost FROM ticket_spare_parts WHERE ticket_id = $1`,
+      [ticketId]
+    );
+    const partsCost = finalParts.reduce((sum, p) => sum + Number(p.total_cost), 0);
 
-    const finalTicket = await prisma.maintenanceTicket.findUnique({ where: { id: ticketId } });
-    const laborCost = finalTicket?.laborCost || 0;
-    const contractorCharges = finalTicket?.contractorCharges || 0;
-    const otherCosts = finalTicket?.otherCosts || 0;
+    const finalTicket = await queryOne<Record<string, unknown>>(
+      `SELECT * FROM maintenance_tickets WHERE id = $1`,
+      [ticketId]
+    );
+    const laborCost = Number((finalTicket as any)?.labor_cost || 0);
+    const contractorCharges = Number((finalTicket as any)?.contractor_charges || 0);
+    const otherCosts = Number((finalTicket as any)?.other_costs || 0);
     const totalRepairCost = partsCost + laborCost + contractorCharges + otherCosts;
 
-    await prisma.maintenanceTicket.update({
-      where: { id: ticketId },
-      data: {
-        status: 'closed',
-        closureOutcome: 'closed',
-        closureVerifiedById: userId,
-        closureDate: new Date(),
-        partsCost,
-        totalRepairCost,
-      },
-    });
+    await execute(
+      `UPDATE maintenance_tickets SET
+         status = 'closed', closure_outcome = 'closed', closure_verified_by_id = $1,
+         closure_date = NOW(), parts_cost = $2, total_repair_cost = $3
+       WHERE id = $4`,
+      [userId, partsCost, totalRepairCost, ticketId]
+    );
 
-    await prisma.machine.update({
-      where: { id: ticket.machineId },
-      data: {
-        lifetimeMaintenanceCost: { increment: totalRepairCost },
-        lastServiceDate: new Date(),
-      },
-    });
+    await execute(
+      `UPDATE machines SET
+         lifetime_maintenance_cost = lifetime_maintenance_cost + $1,
+         last_service_date = NOW()
+       WHERE id = $2`,
+      [totalRepairCost, ticket.machineId]
+    );
 
-    await prisma.ticketProgressLog.create({
-      data: { ticketId, userId, notes: `Ticket verified and closed. Final cost: ${formatCurrency(totalRepairCost)}`, logType: 'status_change' },
-    });
+    await execute(
+      `INSERT INTO ticket_progress_logs (ticket_id, user_id, notes, log_type) VALUES ($1, $2, $3, $4)`,
+      [ticketId, userId, `Ticket verified and closed. Final cost: ${formatCurrency(totalRepairCost)}`, 'status_change']
+    );
 
     revalidatePath(`/tickets/${ticketId}`);
     revalidatePath('/dashboard');
@@ -383,7 +421,7 @@ export default async function TicketDetailPage({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {ticket.sparePartsUsed.map((ps) => (
+                  {ticket.sparePartsUsed.map((ps: any) => (
                     <tr key={ps.id}>
                       <td className="px-4 py-2 font-medium">{ps.part.partName}</td>
                       <td className="px-4 py-2 text-gray-500">{ps.part.partCode}</td>
@@ -405,7 +443,7 @@ export default async function TicketDetailPage({
                     <tr className="border-t-2 border-gray-300">
                       <td colSpan={4} className="px-4 py-2 text-right font-semibold">Total Parts Cost:</td>
                       <td className="px-4 py-2 font-bold text-primary-600">
-                        {formatCurrency(ticket.sparePartsUsed.reduce((sum, p) => sum + p.totalCost, 0))}
+                        {formatCurrency(ticket.sparePartsUsed.reduce((sum: number, p: any) => sum + p.totalCost, 0))}
                       </td>
                     </tr>
                   </tfoot>
@@ -464,7 +502,7 @@ export default async function TicketDetailPage({
             <div className="card p-6">
               <h3 className="mb-3 text-lg font-semibold text-gray-900">Activity Log</h3>
               <div className="space-y-3">
-                {ticket.progressLogs.map((log) => (
+                {ticket.progressLogs.map((log: any) => (
                   <div key={log.id} className="flex gap-3 text-sm">
                     <div className={`h-2 w-2 mt-1.5 flex-shrink-0 rounded-full ${
                       log.logType === 'status_change' ? 'bg-blue-500' :
@@ -519,7 +557,7 @@ export default async function TicketDetailPage({
                       Complete the safety checklist before starting work: <strong>{applicableChecklist.name}</strong>
                     </p>
                     <form action={completeSafetyChecklist} className="mt-3 space-y-2">
-                      {JSON.parse(applicableChecklist.checklistItems).map((item: string, i: number) => (
+                      {JSON.parse(applicableChecklist.checklist_items).map((item: string, i: number) => (
                         <label key={i} className="flex items-start gap-2 text-sm">
                           <input type="checkbox" name={`check_${i}`} className="mt-0.5 h-4 w-4 rounded border-gray-300" />
                           <span className="text-gray-700">{item}</span>

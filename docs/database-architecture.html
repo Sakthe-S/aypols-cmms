@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Aypols CMMS - Database Architecture</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+  body {
+    font-family: 'Segoe UI', sans-serif;
+    background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+    margin: 0;
+    padding: 40px;
+    color: #e2e8f0;
+  }
+  .header {
+    text-align: center;
+    margin-bottom: 20px;
+  }
+  .header h1 {
+    color: #ffffff;
+    margin: 0 0 4px 0;
+    font-size: 32px;
+  }
+  .header p {
+    color: #94a3b8;
+    margin: 0;
+    font-size: 14px;
+  }
+  .container {
+    background: #ffffff;
+    border-radius: 16px;
+    padding: 30px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  }
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    margin-bottom: 20px;
+    padding: 16px;
+    background: #f8fafc;
+    border-radius: 10px;
+    border: 1px solid #e2e8f0;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: #334155;
+  }
+  .dot { width: 14px; height: 14px; border-radius: 4px; display: inline-block; }
+  #diagram {
+    display: flex;
+    justify-content: center;
+  }
+  #diagram svg { max-width: 100%; height: auto; }
+  .footer {
+    text-align: center;
+    color: #64748b;
+    font-size: 13px;
+    margin-top: 20px;
+  }
+  .mermaid { font-family: 'Segoe UI', sans-serif !important; }
+</style>
+</head>
+<body>
+  <div class="header">
+    <h1>🗄️ Aypols CMMS — Database Architecture</h1>
+    <p>16 Tables · 7 Modules · SQLite / Prisma ORM · Phase 1 (Maintenance & EHS)</p>
+  </div>
+
+  <div class="container">
+    <div class="legend">
+      <div class="legend-item"><span class="dot" style="background:#3b82f6"></span> Users &amp; Auth</div>
+      <div class="legend-item"><span class="dot" style="background:#6366f1"></span> Machines</div>
+      <div class="legend-item"><span class="dot" style="background:#f59e0b"></span> Maintenance Tickets</div>
+      <div class="legend-item"><span class="dot" style="background:#10b981"></span> Inventory</div>
+      <div class="legend-item"><span class="dot" style="background:#ec4899"></span> PM / AMC / Calibration</div>
+      <div class="legend-item"><span class="dot" style="background:#8b5cf6"></span> EHS</div>
+      <div class="legend-item"><span class="dot" style="background:#ef4444"></span> Notifications</div>
+    </div>
+    <div id="diagram"></div>
+  </div>
+
+  <div class="footer">
+    Aypols Polymers · Maintenance &amp; EHS Management System · Version 1.0 · Phase 1
+  </div>
+
+<script>
+  mermaid.initialize({ startOnLoad: true, theme: 'neutral', securityLevel: 'loose' });
+  mermaid.render('erd', `erDiagram
+    USER ||--o{ MAINTENANCE_TICKET : "reported_by"
+    USER ||--o{ MAINTENANCE_TICKET : "assigned_to"
+    USER ||--o{ MAINTENANCE_TICKET : "verified_by"
+    USER ||--o{ TICKET_PROGRESS_LOG : "writes"
+    USER ||--o{ STOCK_TRANSACTION : "performs"
+    USER ||--o{ NOTIFICATION : "receives"
+    USER ||--o{ PM_LOG : "completes"
+    USER ||--o{ TICKET_SPARE_PART : "logs"
+    USER ||--o{ SAFETY_CHECKLIST_COMPLETION : "completes"
+    USER ||--o{ TRAINING_COMPLETION : "trains"
+
+    MACHINE ||--o{ MAINTENANCE_TICKET : "owns"
+    MACHINE ||--o{ PM_SCHEDULE : "schedules"
+    MACHINE ||--o{ AMC_RECORD : "contracts"
+    MACHINE ||--o{ CALIBRATION_RECORD : "calibrates"
+
+    MAINTENANCE_TICKET ||--o{ TICKET_PROGRESS_LOG : "has"
+    MAINTENANCE_TICKET ||--o{ TICKET_SPARE_PART : "uses"
+    MAINTENANCE_TICKET ||--o{ SAFETY_CHECKLIST_COMPLETION : "gates"
+    MAINTENANCE_TICKET ||--o{ PM_LOG : "links"
+
+    SPARE_PART ||--o{ STOCK_TRANSACTION : "movement"
+    SPARE_PART ||--o{ TICKET_SPARE_PART : "consumed"
+
+    PM_SCHEDULE ||--o{ PM_LOG : "logs"
+
+    SAFETY_CHECKLIST ||--o{ SAFETY_CHECKLIST_COMPLETION : "template"
+
+    TRAINING_RECORD ||--o{ TRAINING_COMPLETION : "assigns"
+`).then(data => {
+    document.getElementById('diagram').innerHTML = data.svg;
+  });
+</script>
+</body>
+</html>

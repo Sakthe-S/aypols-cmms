@@ -1,4 +1,4 @@
-import prisma from '@/lib/prisma';
+import { query, queryOne, execute, toCamel } from '@/lib/db';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { redirect } from 'next/navigation';
@@ -8,7 +8,9 @@ export const dynamic = 'force-dynamic';
 
 export default async function NewTicketPage() {
   const session = await getServerSession(authOptions);
-  const machines = await prisma.machine.findMany({ orderBy: { machineName: 'asc' } });
+  const machines = (await query<Record<string, unknown>>(
+    `SELECT * FROM machines ORDER BY machine_name ASC`
+  )).map(toCamel);
 
   async function createTicket(formData: FormData) {
     'use server';
@@ -18,23 +20,18 @@ export default async function NewTicketPage() {
     const issueDescription = formData.get('issueDescription') as string;
     const userId = Number((session?.user as any)?.id);
 
-    const lastTicket = await prisma.maintenanceTicket.findFirst({
-      orderBy: { id: 'desc' },
-    });
+    const lastTicket = await queryOne<{ id: number }>(
+      `SELECT id FROM maintenance_tickets ORDER BY id DESC LIMIT 1`
+    );
     const nextNum = (lastTicket?.id || 0) + 1;
     const year = new Date().getFullYear();
     const ticketNumber = `TKT-${year}-${String(nextNum).padStart(3, '0')}`;
 
-    await prisma.maintenanceTicket.create({
-      data: {
-        ticketNumber,
-        machineId,
-        reportedById: userId,
-        priority,
-        category,
-        issueDescription,
-      },
-    });
+    await execute(
+      `INSERT INTO maintenance_tickets (ticket_number, machine_id, reported_by_id, priority, category, issue_description)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [ticketNumber, machineId, userId, priority, category || null, issueDescription]
+    );
 
     redirect('/tickets');
   }

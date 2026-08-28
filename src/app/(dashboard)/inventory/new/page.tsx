@@ -1,4 +1,4 @@
-import prisma from '@/lib/prisma';
+import { execute } from '@/lib/db';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 
@@ -7,22 +7,24 @@ export const dynamic = 'force-dynamic';
 export default async function NewPartPage() {
   async function createPart(formData: FormData) {
     'use server';
-    await prisma.sparePart.create({
-      data: {
-        partCode: formData.get('partCode') as string,
-        partName: formData.get('partName') as string,
-        category: formData.get('category') as string || undefined,
-        unit: formData.get('unit') as string,
-        purchaseRate: parseFloat(formData.get('purchaseRate') as string) || 0,
-        currentQty: parseFloat(formData.get('currentQty') as string) || 0,
-        minThreshold: parseFloat(formData.get('minThreshold') as string) || 0,
-        reorderQty: parseFloat(formData.get('reorderQty') as string) || 0,
-        storageRoom: formData.get('storageRoom') as string || undefined,
-        rackBin: formData.get('rackBin') as string || undefined,
-        supplier: formData.get('supplier') as string || undefined,
-        notes: formData.get('notes') as string || undefined,
-      },
-    });
+    await execute(
+      `INSERT INTO spare_parts (part_code, part_name, category, unit, purchase_rate, current_qty, min_threshold, reorder_qty, storage_room, rack_bin, supplier, notes)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+      [
+        formData.get('partCode') as string,
+        formData.get('partName') as string,
+        formData.get('category') as string || null,
+        formData.get('unit') as string,
+        parseFloat(formData.get('purchaseRate') as string) || 0,
+        parseFloat(formData.get('currentQty') as string) || 0,
+        parseFloat(formData.get('minThreshold') as string) || 0,
+        parseFloat(formData.get('reorderQty') as string) || 0,
+        formData.get('storageRoom') as string || null,
+        formData.get('rackBin') as string || null,
+        formData.get('supplier') as string || null,
+        formData.get('notes') as string || null,
+      ]
+    );
     redirect('/inventory');
   }
 

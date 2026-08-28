@@ -1,14 +1,23 @@
-import prisma from '@/lib/prisma';
+import { query, toCamel } from '@/lib/db';
 import { formatDateTime } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
 
 export default async function TransactionsPage() {
-  const transactions = await prisma.stockTransaction.findMany({
-    orderBy: { createdAt: 'desc' },
-    include: { part: true, user: true },
-    take: 50,
-  });
+  const rows = await query<Record<string, unknown>>(
+    `SELECT st.*, p.part_name, p.part_code, p.unit, u.name AS user_name
+     FROM stock_transactions st
+     JOIN spare_parts p ON p.id = st.part_id
+     JOIN users u ON u.id = st.user_id
+     ORDER BY st.created_at DESC
+     LIMIT 50`
+  );
+
+  const transactions = rows.map(row => ({
+    ...toCamel(row),
+    part: { partName: row['part_name'], partCode: row['part_code'], unit: row['unit'] },
+    user: { name: row['user_name'] },
+  }));
 
   return (
     <div className="space-y-6">
