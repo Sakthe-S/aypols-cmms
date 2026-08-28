@@ -1,12 +1,18 @@
 import { execute } from '@/lib/db';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 
 export const dynamic = 'force-dynamic';
 
 export default async function NewPartPage() {
+  const session = await getServerSession(authOptions);
+  const userRole = (session?.user as any)?.role;
+
   async function createPart(formData: FormData) {
     'use server';
+    if (userRole !== 'STORE_ADMIN' && userRole !== 'ADMIN') return;
     await execute(
       `INSERT INTO spare_parts (part_code, part_name, category, unit, purchase_rate, current_qty, min_threshold, reorder_qty, storage_room, rack_bin, supplier, notes)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,

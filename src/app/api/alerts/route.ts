@@ -1,7 +1,13 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
 import { query, queryOne, execute } from '@/lib/db';
 
-export async function GET(req: NextRequest) {
+export async function GET() {
+  const session = await getServerSession(authOptions);
+  const userId = (session?.user as any)?.id as string | undefined;
+  if (!userId) return new NextResponse('Unauthorized', { status: 401 });
+
   const allParts = await query<{
     id: number; part_code: string; part_name: string;
     current_qty: number; min_threshold: number;
@@ -33,27 +39,25 @@ export async function GET(req: NextRequest) {
      WHERE is_active = true AND next_due_date < NOW()`
   );
 
-  // Auto-generate notifications for low stock
-  for (const part of lowStockParts) {
-    const existing = await queryOne(
-      `SELECT id FROM notifications
-       WHERE type = 'low_stock'
-         AND message ILIKE $1
-         AND created_at >= $2
-       LIMIT 1`,
-      [`%${part.part_code}%`, new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()]
-    );
-    if (!existing) {
-      const supervisors = await query<{ id: number }>(
-        `SELECT id FROM users WHERE role = ANY($1)`,
-        [['SUPERVISOR', 'STORE_ADMIN', 'ADMIN']]
+  // Maintain low-stock notifications for the current user (if an eligible role)
+  const recipientRole = (session?.user as any)?.role as string | undefined;
+  if (['SUPERVISOR', 'STORE_ADMIN', 'ADMIN'].includes(recipientRole || '')) {
+    for (const part of lowStockParts) {
+      const existing = await queryOne(
+        `SELECT id FROM notifications
+         WHERE user_id = $1
+           AND type = 'low_stock'
+           AND message ILIKE $2
+           AND created_at >= $3
+         LIMIT 1`,
+        [userId, `%${part.part_code}%`, new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()]
       );
-      for (const user of supervisors) {
+      if (!existing) {
         await execute(
           `INSERT INTO notifications (user_id, title, message, type, link_url)
            VALUES ($1, $2, $3, $4, $5)`,
           [
-            user.id,
+            userId,
             'Low Stock Alert',
             `${part.part_name} (${part.part_code}) is below minimum threshold. Current: ${part.current_qty}, Min: ${part.min_threshold}`,
             'low_stock',

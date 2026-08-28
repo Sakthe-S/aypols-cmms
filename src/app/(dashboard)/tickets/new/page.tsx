@@ -19,13 +19,14 @@ export default async function NewTicketPage() {
     const category = formData.get('category') as string;
     const issueDescription = formData.get('issueDescription') as string;
     const userId = Number((session?.user as any)?.id);
+    if (!userId) return;
 
-    const lastTicket = await queryOne<{ id: number }>(
-      `SELECT id FROM maintenance_tickets ORDER BY id DESC LIMIT 1`
+    const seqRes = await queryOne<{ ticket_number: string }>(
+      `SELECT 'TKT-' || EXTRACT(YEAR FROM CURRENT_DATE)::int || '-' ||
+              LPAD(nextval('maintenance_ticket_num_seq')::text, 3, '0') AS ticket_number`
     );
-    const nextNum = (lastTicket?.id || 0) + 1;
-    const year = new Date().getFullYear();
-    const ticketNumber = `TKT-${year}-${String(nextNum).padStart(3, '0')}`;
+    const ticketNumber = seqRes?.ticket_number;
+    if (!ticketNumber) return;
 
     await execute(
       `INSERT INTO maintenance_tickets (ticket_number, machine_id, reported_by_id, priority, category, issue_description)

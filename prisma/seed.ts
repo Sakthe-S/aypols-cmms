@@ -32,6 +32,11 @@ async function main() {
   try {
     await client.query('BEGIN');
 
+    await client.query('CREATE SEQUENCE IF NOT EXISTS maintenance_ticket_num_seq');
+    await client.query(
+      `SELECT setval('maintenance_ticket_num_seq', GREATEST(COALESCE((SELECT MAX(id) FROM maintenance_tickets), 0), 1))`
+    );
+
     const passwordHash = await bcrypt.hash('password123', 10);
 
     const userIds = await insertMany(client, 'users', ['name', 'email', 'password_hash', 'role', 'trade', 'phone'], [

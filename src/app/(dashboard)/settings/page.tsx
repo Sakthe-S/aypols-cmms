@@ -23,6 +23,7 @@ export default async function SettingsPage() {
 
   async function updateProfile(formData: FormData) {
     'use server';
+    if (!userId) return;
     await execute(
       `UPDATE users SET name = $1, phone = $2 WHERE id = $3`,
       [formData.get('name') as string, formData.get('phone') as string || null, userId]

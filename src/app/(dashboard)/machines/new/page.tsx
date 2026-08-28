@@ -1,12 +1,18 @@
 import { execute } from '@/lib/db';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 
 export const dynamic = 'force-dynamic';
 
 export default async function NewMachinePage() {
+  const session = await getServerSession(authOptions);
+  const userRole = (session?.user as any)?.role;
+
   async function createMachine(formData: FormData) {
     'use server';
+    if (userRole !== 'ADMIN' && userRole !== 'SUPERVISOR') return;
     const installationDate = formData.get('installationDate');
     await execute(
       `INSERT INTO machines (machine_name, serial_number, department, location, manufacturer, model, installation_date)

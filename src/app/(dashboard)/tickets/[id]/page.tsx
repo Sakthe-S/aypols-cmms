@@ -119,29 +119,34 @@ export default async function TicketDetailPage({
 
   async function allocateTicket(formData: FormData) {
     'use server';
+    if (userRole !== 'SUPERVISOR' && userRole !== 'ADMIN') return;
     const assignedToId = Number(formData.get('assignedToId'));
-    await execute(
-      `UPDATE maintenance_tickets SET assigned_to_id = $1, status = 'allocated', allocated_date = NOW() WHERE id = $2`,
-      [assignedToId, ticketId]
-    );
-    await execute(
-      `INSERT INTO ticket_progress_logs (ticket_id, user_id, notes, log_type) VALUES ($1, $2, $3, $4)`,
-      [ticketId, userId, 'Ticket allocated to technician', 'status_change']
-    );
+    await withTransaction(async (tx) => {
+      await tx.query(
+        `UPDATE maintenance_tickets SET assigned_to_id = $1, status = 'allocated', allocated_date = NOW() WHERE id = $2`,
+        [assignedToId, ticketId]
+      );
+      await tx.query(
+        `INSERT INTO ticket_progress_logs (ticket_id, user_id, notes, log_type) VALUES ($1, $2, $3, $4)`,
+        [ticketId, userId, 'Ticket allocated to technician', 'status_change']
+      );
+    });
     revalidatePath(`/tickets/${ticketId}`);
     redirect(`/tickets/${ticketId}`);
   }
 
   async function startWork() {
     'use server';
-    await execute(
-      `UPDATE maintenance_tickets SET status = 'in_progress', start_time = NOW() WHERE id = $1`,
-      [ticketId]
-    );
-    await execute(
-      `INSERT INTO ticket_progress_logs (ticket_id, user_id, notes, log_type) VALUES ($1, $2, $3, $4)`,
-      [ticketId, userId, 'Work started', 'status_change']
-    );
+    await withTransaction(async (tx) => {
+      await tx.query(
+        `UPDATE maintenance_tickets SET status = 'in_progress', start_time = NOW() WHERE id = $1`,
+        [ticketId]
+      );
+      await tx.query(
+        `INSERT INTO ticket_progress_logs (ticket_id, user_id, notes, log_type) VALUES ($1, $2, $3, $4)`,
+        [ticketId, userId, 'Work started', 'status_change']
+      );
+    });
     revalidatePath(`/tickets/${ticketId}`);
     redirect(`/tickets/${ticketId}`);
   }
@@ -157,21 +162,23 @@ export default async function TicketDetailPage({
     }));
     const allChecked = responses.every((r: any) => r.checked);
 
-    await execute(
-      `INSERT INTO safety_checklist_completions (checklist_id, ticket_id, completed_by_id, is_approved, responses)
-       VALUES ($1, $2, $3, $4, $5)`,
-      [applicableChecklist.id, ticketId, userId, allChecked, JSON.stringify(responses)]
-    );
+    await withTransaction(async (tx) => {
+      await tx.query(
+        `INSERT INTO safety_checklist_completions (checklist_id, ticket_id, completed_by_id, is_approved, responses)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [applicableChecklist.id, ticketId, userId, allChecked, JSON.stringify(responses)]
+      );
 
-    await execute(
-      `INSERT INTO ticket_progress_logs (ticket_id, user_id, notes, log_type) VALUES ($1, $2, $3, $4)`,
-      [
-        ticketId,
-        userId,
-        `Safety checklist completed: ${allChecked ? 'All items passed' : 'Some items failed - requires supervisor override'}`,
-        'status_change',
-      ]
-    );
+      await tx.query(
+        `INSERT INTO ticket_progress_logs (ticket_id, user_id, notes, log_type) VALUES ($1, $2, $3, $4)`,
+        [
+          ticketId,
+          userId,
+          `Safety checklist completed: ${allChecked ? 'All items passed' : 'Some items failed - requires supervisor override'}`,
+          'status_change',
+        ]
+      );
+    });
 
     revalidatePath(`/tickets/${ticketId}`);
     redirect(`/tickets/${ticketId}`);
@@ -182,24 +189,26 @@ export default async function TicketDetailPage({
     if (!applicableChecklist) return;
     const reason = formData.get('reason') as string;
 
-    await execute(
-      `INSERT INTO safety_checklist_completions (checklist_id, ticket_id, completed_by_id, override_by_id, override_reason, is_approved, responses)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [
-        applicableChecklist.id,
-        ticketId,
-        userId,
-        userId,
-        reason,
-        true,
-        JSON.stringify([{ item: 'Override', checked: true, notes: reason }]),
-      ]
-    );
+    await withTransaction(async (tx) => {
+      await tx.query(
+        `INSERT INTO safety_checklist_completions (checklist_id, ticket_id, completed_by_id, override_by_id, override_reason, is_approved, responses)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [
+          applicableChecklist.id,
+          ticketId,
+          userId,
+          userId,
+          reason,
+          true,
+          JSON.stringify([{ item: 'Override', checked: true, notes: reason }]),
+        ]
+      );
 
-    await execute(
-      `INSERT INTO ticket_progress_logs (ticket_id, user_id, notes, log_type) VALUES ($1, $2, $3, $4)`,
-      [ticketId, userId, `Safety checklist overridden by supervisor. Reason: ${reason}`, 'status_change']
-    );
+      await tx.query(
+        `INSERT INTO ticket_progress_logs (ticket_id, user_id, notes, log_type) VALUES ($1, $2, $3, $4)`,
+        [ticketId, userId, `Safety checklist overridden by supervisor. Reason: ${reason}`, 'status_change']
+      );
+    });
 
     revalidatePath(`/tickets/${ticketId}`);
     redirect(`/tickets/${ticketId}`);
@@ -279,60 +288,66 @@ export default async function TicketDetailPage({
     const startTime = ticket.startTime ? new Date(ticket.startTime) : new Date();
     const downtimeMinutes = Math.round((endTime.getTime() - startTime.getTime()) / 60000);
 
-    await execute(
-      `UPDATE maintenance_tickets SET
-         status = 'completed', diagnosis = $1, rootcause = $2, actions_taken = $3,
-         labor_hours = $4, labor_rate_per_hour = $5, labor_cost = $6,
-         contractor_charges = $7, other_costs = $8, parts_cost = $9, total_repair_cost = $10,
-         end_time = $11, downtime_minutes = $12
-       WHERE id = $13`,
-      [diagnosis, rootCause, actionsTaken, laborHours, laborRate, laborCost, contractorCharges, otherCosts, partsCost, totalRepairCost, endTime, downtimeMinutes, ticketId]
-    );
-    await execute(
-      `INSERT INTO ticket_progress_logs (ticket_id, user_id, notes, log_type) VALUES ($1, $2, $3, $4)`,
-      [ticketId, userId, `Work completed. Total cost: ${formatCurrency(totalRepairCost)}`, 'status_change']
-    );
+    await withTransaction(async (tx) => {
+      await tx.query(
+        `UPDATE maintenance_tickets SET
+           status = 'completed', diagnosis = $1, rootcause = $2, actions_taken = $3,
+           labor_hours = $4, labor_rate_per_hour = $5, labor_cost = $6,
+           contractor_charges = $7, other_costs = $8, parts_cost = $9, total_repair_cost = $10,
+           end_time = $11, downtime_minutes = $12
+         WHERE id = $13`,
+        [diagnosis, rootCause, actionsTaken, laborHours, laborRate, laborCost, contractorCharges, otherCosts, partsCost, totalRepairCost, endTime, downtimeMinutes, ticketId]
+      );
+      await tx.query(
+        `INSERT INTO ticket_progress_logs (ticket_id, user_id, notes, log_type) VALUES ($1, $2, $3, $4)`,
+        [ticketId, userId, `Work completed. Total cost: ${formatCurrency(totalRepairCost)}`, 'status_change']
+      );
+    });
     revalidatePath(`/tickets/${ticketId}`);
     redirect(`/tickets/${ticketId}`);
   }
 
   async function verifyAndClose() {
     'use server';
-    const finalParts = await query<{ total_cost: number }>(
-      `SELECT total_cost FROM ticket_spare_parts WHERE ticket_id = $1`,
-      [ticketId]
-    );
-    const partsCost = finalParts.reduce((sum, p) => sum + Number(p.total_cost), 0);
+    if (userRole !== 'SUPERVISOR' && userRole !== 'ADMIN') return;
+    await withTransaction(async (tx) => {
+      const finalParts = await tx.query<{ total_cost: number }>(
+        `SELECT total_cost FROM ticket_spare_parts WHERE ticket_id = $1`,
+        [ticketId]
+      );
+      const partsCost = finalParts.rows.reduce((sum, p) => sum + Number(p.total_cost), 0);
 
-    const finalTicket = await queryOne<Record<string, unknown>>(
-      `SELECT * FROM maintenance_tickets WHERE id = $1`,
-      [ticketId]
-    );
-    const laborCost = Number((finalTicket as any)?.labor_cost || 0);
-    const contractorCharges = Number((finalTicket as any)?.contractor_charges || 0);
-    const otherCosts = Number((finalTicket as any)?.other_costs || 0);
-    const totalRepairCost = partsCost + laborCost + contractorCharges + otherCosts;
+      const finalTicket = await tx.query<Record<string, unknown>>(
+        `SELECT * FROM maintenance_tickets WHERE id = $1`,
+        [ticketId]
+      );
+      const ft = finalTicket.rows[0] as any;
+      const laborCost = Number(ft?.labor_cost || 0);
+      const contractorCharges = Number(ft?.contractor_charges || 0);
+      const otherCosts = Number(ft?.other_costs || 0);
+      const totalRepairCost = partsCost + laborCost + contractorCharges + otherCosts;
 
-    await execute(
-      `UPDATE maintenance_tickets SET
-         status = 'closed', closure_outcome = 'closed', closure_verified_by_id = $1,
-         closure_date = NOW(), parts_cost = $2, total_repair_cost = $3
-       WHERE id = $4`,
-      [userId, partsCost, totalRepairCost, ticketId]
-    );
+      await tx.query(
+        `UPDATE maintenance_tickets SET
+           status = 'closed', closure_outcome = 'closed', closure_verified_by_id = $1,
+           closure_date = NOW(), parts_cost = $2, total_repair_cost = $3
+         WHERE id = $4`,
+        [userId, partsCost, totalRepairCost, ticketId]
+      );
 
-    await execute(
-      `UPDATE machines SET
-         lifetime_maintenance_cost = lifetime_maintenance_cost + $1,
-         last_service_date = NOW()
-       WHERE id = $2`,
-      [totalRepairCost, ticket.machineId]
-    );
+      await tx.query(
+        `UPDATE machines SET
+           lifetime_maintenance_cost = lifetime_maintenance_cost + $1,
+           last_service_date = NOW()
+         WHERE id = $2`,
+        [totalRepairCost, ticket.machineId]
+      );
 
-    await execute(
-      `INSERT INTO ticket_progress_logs (ticket_id, user_id, notes, log_type) VALUES ($1, $2, $3, $4)`,
-      [ticketId, userId, `Ticket verified and closed. Final cost: ${formatCurrency(totalRepairCost)}`, 'status_change']
-    );
+      await tx.query(
+        `INSERT INTO ticket_progress_logs (ticket_id, user_id, notes, log_type) VALUES ($1, $2, $3, $4)`,
+        [ticketId, userId, `Ticket verified and closed. Final cost: ${formatCurrency(totalRepairCost)}`, 'status_change']
+      );
+    });
 
     revalidatePath(`/tickets/${ticketId}`);
     revalidatePath('/dashboard');
@@ -505,8 +520,8 @@ export default async function TicketDetailPage({
                 {ticket.progressLogs.map((log: any) => (
                   <div key={log.id} className="flex gap-3 text-sm">
                     <div className={`h-2 w-2 mt-1.5 flex-shrink-0 rounded-full ${
-                      log.logType === 'status_change' ? 'bg-blue-500' :
-                      log.logType === 'parts_request' ? 'bg-orange-500' : 'bg-gray-400'
+                      log.log_type === 'status_change' ? 'bg-blue-500' :
+                      log.log_type === 'parts_request' ? 'bg-orange-500' : 'bg-gray-400'
                     }`} />
                     <div>
                       <p className="text-gray-700">{log.notes}</p>
