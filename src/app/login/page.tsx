@@ -2,7 +2,6 @@
 
 import { signIn } from 'next-auth/react';
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { Wrench, Shield } from 'lucide-react';
 
 export default function LoginPage() {
@@ -10,25 +9,28 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const router = useRouter();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError('');
 
-    const result = await signIn('credentials', {
-      email,
-      password,
-      redirect: false,
-    });
+    try {
+      const result = await signIn('credentials', {
+        email,
+        password,
+        redirect: false,
+      });
 
-    if (result?.error) {
-      setError('Invalid email or password');
+      if (result?.error) {
+        setError('Invalid email or password');
+        setLoading(false);
+      } else {
+        window.location.href = '/dashboard';
+      }
+    } catch (err) {
+      setError('Unable to sign in. Please try again.');
       setLoading(false);
-    } else {
-      router.push('/dashboard');
-      router.refresh();
     }
   };
 
