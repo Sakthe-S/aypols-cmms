@@ -159,6 +159,13 @@ async function main() {
       { user_id: storeAdminId, title: 'Low Stock Alert', message: 'Contactors 20A (ELC-005) is below minimum threshold. Current: 2, Min: 3', type: 'low_stock', link_url: '/inventory' },
     ]);
 
+    await client.query(
+      `INSERT INTO app_config (company_name, company_address, company_phone, company_email, currency, default_labor_rate, default_pm_lead_days, low_stock_threshold)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       ON CONFLICT DO NOTHING`,
+      ['Aypols Polymers', 'Perundurai, Erode District, Tamil Nadu', '9876543210', 'admin@aypols.com', 'INR', 400, 7, 0]
+    );
+
     await client.query('COMMIT');
   } catch (err) {
     await client.query('ROLLBACK');
