@@ -1,7 +1,11 @@
-import { query, queryOne, toCamel } from '@/lib/db';
+import { query, queryOne, execute, toCamel } from '@/lib/db';
 import Link from 'next/link';
+import { revalidatePath } from 'next/cache';
+import { redirect } from 'next/navigation';
 import { formatCurrency } from '@/lib/utils';
-import { Plus, Package, AlertTriangle, Search } from 'lucide-react';
+import { Plus, Package, AlertTriangle, Search, Trash2 } from 'lucide-react';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -10,6 +14,9 @@ export default async function InventoryPage({
 }: {
   searchParams: { category?: string; search?: string; stock?: string };
 }) {
+  const session = await getServerSession(authOptions);
+  const userRole = (session?.user as any)?.role;
+  const canDelete = userRole === 'STORE_ADMIN' || userRole === 'ADMIN';
   const conditions: string[] = [];
   const params: unknown[] = [];
   if (searchParams.category && searchParams.category !== 'all') {
@@ -41,6 +48,17 @@ export default async function InventoryPage({
   const totalValue = (await queryOne<{ total: number | null }>(
     `SELECT COALESCE(SUM(purchase_rate), 0)::float8 AS total FROM spare_parts`
   ))?.total || 0;
+
+  async function deletePart(formData: FormData) {
+    'use server';
+    if (userRole !== 'STORE_ADMIN' && userRole !== 'ADMIN') return;
+    const partId = Number(formData.get('id'));
+    await execute(`DELETE FROM stock_transactions WHERE part_id = $1`, [partId]);
+    await execute(`DELETE FROM ticket_spare_parts WHERE part_id = $1`, [partId]);
+    await execute(`DELETE FROM spare_parts WHERE id = $1`, [partId]);
+    revalidatePath('/inventory');
+    redirect('/inventory');
+  }
 
   return (
     <div className="space-y-6">
@@ -142,6 +160,7 @@ export default async function InventoryPage({
                 <th className="table-header px-6 py-3">Unit Price</th>
                 <th className="table-header px-6 py-3">Location</th>
                 <th className="table-header px-6 py-3">Status</th>
+                {canDelete && <th className="table-header px-6 py-3">Actions</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -177,12 +196,22 @@ export default async function InventoryPage({
                         <span className="badge bg-green-100 text-green-800">In Stock</span>
                       )}
                     </td>
+                    {canDelete && (
+                      <td className="whitespace-nowrap px-6 py-4">
+                        <form action={deletePart} onSubmit={() => confirm('Delete this part and its history?')}>
+                          <input type="hidden" name="id" value={part.id} />
+                          <button type="submit" className="btn-danger px-3 py-1 text-xs">
+                            <Trash2 className="mr-1 h-3 w-3" /> Delete
+                          </button>
+                        </form>
+                      </td>
+                    )}
                   </tr>
                 );
               })}
               {parts.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-6 py-12 text-center text-sm text-gray-500">
+                  <td colSpan={canDelete ? 9 : 8} className="px-6 py-12 text-center text-sm text-gray-500">
                     No parts found
                   </td>
                 </tr>
@@ -231,6 +260,14 @@ export default async function InventoryPage({
                 </div>
               </div>
               <p className="mt-2 text-xs text-gray-500">{part.storageRoom}{part.rackBin ? `, ${part.rackBin}` : ''}</p>
+              {canDelete && (
+                <form action={deletePart} className="mt-2" onSubmit={() => confirm('Delete this part and its history?')}>
+                  <input type="hidden" name="id" value={part.id} />
+                  <button type="submit" className="btn-danger w-full text-xs">
+                    <Trash2 className="mr-1 h-3 w-3" /> Delete Part
+                  </button>
+                </form>
+              )}
             </Link>
           );
         })}

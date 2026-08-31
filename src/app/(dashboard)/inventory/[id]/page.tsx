@@ -5,13 +5,15 @@ import { redirect } from 'next/navigation';
 import { formatCurrency, formatDateTime } from '@/lib/utils';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, Trash2 } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
 
 export default async function PartDetailPage({ params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions);
   const userId = Number((session?.user as any)?.id);
+  const userRole = (session?.user as any)?.role;
+  const canDelete = userRole === 'STORE_ADMIN' || userRole === 'ADMIN';
   const partId = Number(params.id);
 
   const partRow = await queryOne<Record<string, unknown>>(
@@ -131,6 +133,40 @@ export default async function PartDetailPage({ params }: { params: { id: string 
     redirect(`/inventory/${partId}`);
   }
 
+  async function deleteStockTransaction(formData: FormData) {
+    'use server';
+    if (userRole !== 'STORE_ADMIN' && userRole !== 'ADMIN') return;
+    const transactionId = Number(formData.get('transactionId'));
+    const txn = await queryOne<any>(
+      `SELECT * FROM stock_transactions WHERE id = $1`,
+      [transactionId]
+    );
+    if (!txn) return;
+    if (txn.transaction_type === 'stock_in') {
+      await execute(
+        `UPDATE spare_parts SET current_qty = current_qty - $1 WHERE id = $2`,
+        [txn.quantity, partId]
+      );
+    } else if (txn.transaction_type === 'stock_out') {
+      await execute(
+        `UPDATE spare_parts SET current_qty = current_qty + $1 WHERE id = $2`,
+        [txn.quantity, partId]
+      );
+    }
+    await execute(`DELETE FROM stock_transactions WHERE id = $1`, [transactionId]);
+    revalidatePath(`/inventory/${partId}`);
+    redirect(`/inventory/${partId}`);
+  }
+
+  async function deletePart() {
+    'use server';
+    if (userRole !== 'ADMIN') return;
+    await execute(`DELETE FROM stock_transactions WHERE part_id = $1`, [partId]);
+    await execute(`DELETE FROM ticket_spare_parts WHERE part_id = $1`, [partId]);
+    await execute(`DELETE FROM spare_parts WHERE id = $1`, [partId]);
+    redirect('/inventory');
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-start justify-between">
@@ -148,6 +184,13 @@ export default async function PartDetailPage({ params }: { params: { id: string 
             {part.category} &middot; {part.storageRoom}{part.rackBin ? `, ${part.rackBin}` : ''}
           </p>
         </div>
+        {userRole === 'ADMIN' && (
+          <form action={deletePart} onSubmit={() => confirm('Delete this part and all its history?')}>
+            <button type="submit" className="btn-danger">
+              <Trash2 className="mr-2 h-4 w-4" /> Delete Part
+            </button>
+          </form>
+        )}
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
@@ -255,6 +298,7 @@ export default async function PartDetailPage({ params }: { params: { id: string 
                     <th className="table-header px-6 py-3">Qty</th>
                     <th className="table-header px-6 py-3">User</th>
                     <th className="table-header px-6 py-3">Reason</th>
+                    {canDelete && <th className="table-header px-6 py-3">Actions</th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
@@ -275,11 +319,21 @@ export default async function PartDetailPage({ params }: { params: { id: string 
                       </td>
                       <td className="px-6 py-3 text-gray-700">{tx.user.name}</td>
                       <td className="px-6 py-3 text-gray-500">{tx.reason || '-'}</td>
+                      {canDelete && (
+                        <td className="px-6 py-3">
+                          <form action={deleteStockTransaction} onSubmit={() => confirm('Delete this transaction? Stock quantity will be adjusted.')}>
+                            <input type="hidden" name="transactionId" value={tx.id} />
+                            <button type="submit" className="btn-danger px-3 py-1 text-xs">
+                              <Trash2 className="mr-1 h-3 w-3" /> Delete
+                            </button>
+                          </form>
+                        </td>
+                      )}
                     </tr>
                   ))}
                   {part.stockTransactions.length === 0 && (
                     <tr>
-                      <td colSpan={5} className="px-6 py-8 text-center text-gray-500">
+                      <td colSpan={canDelete ? 6 : 5} className="px-6 py-8 text-center text-gray-500">
                         No transactions yet
                       </td>
                     </tr>

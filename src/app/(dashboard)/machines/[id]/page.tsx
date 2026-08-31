@@ -1,12 +1,17 @@
-import { query, queryOne, toCamel } from '@/lib/db';
-import { notFound } from 'next/navigation';
+import { query, queryOne, withTransaction, toCamel } from '@/lib/db';
+import { notFound, redirect } from 'next/navigation';
+import { revalidatePath } from 'next/cache';
 import { formatCurrency, formatDate, formatDateTime, getStatusColor, getPriorityColor } from '@/lib/utils';
 import Link from 'next/link';
-import { Wrench, Clock, DollarSign, Calendar, AlertTriangle } from 'lucide-react';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
+import { Wrench, Clock, DollarSign, Calendar, AlertTriangle, Trash2 } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
 
 export default async function MachineDetailPage({ params }: { params: { id: string } }) {
+  const session = await getServerSession(authOptions);
+  const userRole = (session?.user as any)?.role;
   const machineId = Number(params.id);
   const machineRow = await queryOne<Record<string, unknown>>(
     `SELECT * FROM machines WHERE id = $1`,
@@ -69,19 +74,50 @@ export default async function MachineDetailPage({ params }: { params: { id: stri
     _avg: { totalRepairCost: costAgg?.avg || null },
   };
 
+  async function deleteMachine() {
+    'use server';
+    if (userRole !== 'ADMIN') return;
+
+    const openTickets = await queryOne<{ count: number }>(
+      `SELECT count(*)::int AS count FROM maintenance_tickets
+       WHERE machine_id = $1 AND status IN ('open', 'allocated', 'in_progress', 'completed')`,
+      [machineId]
+    );
+    if (openTickets?.count) return;
+
+    await withTransaction(async (tx) => {
+      await tx.query(`DELETE FROM pm_schedules WHERE machine_id = $1`, [machineId]);
+      await tx.query(`DELETE FROM amc_records WHERE machine_id = $1`, [machineId]);
+      await tx.query(`DELETE FROM calibration_records WHERE machine_id = $1`, [machineId]);
+      await tx.query(`DELETE FROM machines WHERE id = $1`, [machineId]);
+    });
+
+    revalidatePath('/machines');
+    redirect('/machines');
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-bold text-gray-900">{machine.machineName}</h1>
-          <span className={`badge ${getStatusColor(machine.currentStatus)}`}>
-            {machine.currentStatus}
-          </span>
+      <div className="flex items-start justify-between">
+        <div>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-bold text-gray-900">{machine.machineName}</h1>
+            <span className={`badge ${getStatusColor(machine.currentStatus)}`}>
+              {machine.currentStatus}
+            </span>
+          </div>
+          <p className="mt-1 text-sm text-gray-500">
+            {machine.serialNumber} &middot; {machine.department} &middot; {machine.location}
+          </p>
         </div>
-        <p className="mt-1 text-sm text-gray-500">
-          {machine.serialNumber} &middot; {machine.department} &middot; {machine.location}
-        </p>
+        {userRole === 'ADMIN' && (
+          <form action={deleteMachine} onSubmit={() => confirm('Delete this machine? All associated schedules will be removed.')}>
+            <button type="submit" className="btn-danger">
+              <Trash2 className="mr-2 h-4 w-4" /> Delete Machine
+            </button>
+          </form>
+        )}
       </div>
 
       {/* Stats */}

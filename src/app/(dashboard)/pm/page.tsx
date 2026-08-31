@@ -1,6 +1,6 @@
 import { query, queryOne, execute, toCamel } from '@/lib/db';
 import { formatDate, getStatusColor } from '@/lib/utils';
-import { Calendar, Clock, CheckCircle2 } from 'lucide-react';
+import { Calendar, Clock, CheckCircle2, Pencil, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
@@ -13,6 +13,9 @@ type PmRow = Record<string, unknown>;
 
 export default async function PmPage() {
   const session = await getServerSession(authOptions);
+  const userRole = (session?.user as any)?.role;
+  const canManage = userRole === 'SUPERVISOR' || userRole === 'ADMIN';
+  const now = new Date();
   const pmRows = await query<PmRow>(
     `SELECT ps.*, m.machine_name,
             (SELECT l.completed_at FROM pm_logs l WHERE l.schedule_id = ps.id ORDER BY l.completed_at DESC LIMIT 1) AS last_completed_at,
@@ -93,7 +96,46 @@ export default async function PmPage() {
     redirect('/pm');
   }
 
-  const now = new Date();
+  async function updatePmSchedule(formData: FormData) {
+    'use server';
+    if (!canManage) return;
+    const scheduleId = Number(formData.get('id'));
+    const taskName = formData.get('taskName') as string;
+    const frequency = formData.get('frequency') as string;
+    const description = formData.get('description') as string;
+    const checklistItems = formData.get('checklistItems') as string;
+    const nextDueDate = formData.get('nextDueDate') as string || null;
+    const leadDays = parseInt(formData.get('leadDays') as string, 10) || 7;
+
+    await execute(
+      `UPDATE pm_schedules SET
+         task_name = $1, frequency = $2, description = $3,
+         checklist_items = $4, next_due_date = $5, lead_days = $6
+       WHERE id = $7`,
+      [taskName, frequency, description, checklistItems
+        ? JSON.stringify(checklistItems.split('\n').map((s: string) => s.trim()).filter(Boolean))
+        : null, nextDueDate || null, leadDays, scheduleId]
+    );
+
+    revalidatePath('/pm');
+    redirect('/pm');
+  }
+
+  async function deletePmSchedule(formData: FormData) {
+    'use server';
+    if (userRole !== 'ADMIN') return;
+    const scheduleId = Number(formData.get('id'));
+    await execute(
+      `DELETE FROM pm_logs WHERE schedule_id = $1`,
+      [scheduleId]
+    );
+    await execute(
+      `DELETE FROM pm_schedules WHERE id = $1`,
+      [scheduleId]
+    );
+    revalidatePath('/pm');
+    redirect('/pm');
+  }
 
   return (
     <div className="space-y-8">
@@ -136,6 +178,66 @@ export default async function PmPage() {
                   <p className="mt-2 text-xs text-gray-500">
                     Last done: {formatDate(pm.logs[0].completedAt)} by {pm.logs[0].completedBy.name}
                   </p>
+                )}
+                {canManage && (
+                  <div className="mt-3 border-t border-gray-100 pt-3">
+                    <details className="group">
+                      <summary className="flex cursor-pointer items-center gap-1 text-xs font-medium text-primary-600 hover:underline">
+                        <Pencil className="h-3 w-3" /> Edit Schedule
+                      </summary>
+                      <form action={updatePmSchedule} className="mt-3 space-y-3">
+                        <input type="hidden" name="id" value={pm.id} />
+                        <div>
+                          <label className="label">Task Name</label>
+                          <input type="text" name="taskName" className="input-field" defaultValue={pm.taskName} required />
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="label">Frequency</label>
+                            <select name="frequency" className="input-field" defaultValue={pm.frequency}>
+                              <option value="daily">Daily</option>
+                              <option value="weekly">Weekly</option>
+                              <option value="monthly">Monthly</option>
+                              <option value="quarterly">Quarterly</option>
+                              <option value="half_yearly">Half Yearly</option>
+                              <option value="yearly">Yearly</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="label">Next Due Date</label>
+                            <input
+                              type="date"
+                              name="nextDueDate"
+                              className="input-field"
+                              defaultValue={pm.nextDueDate ? new Date(pm.nextDueDate).toISOString().slice(0, 10) : ''}
+                            />
+                          </div>
+                        </div>
+                        <div>
+                          <label className="label">Description</label>
+                          <textarea name="description" className="input-field" rows={2} defaultValue={pm.description} />
+                        </div>
+                        <div>
+                          <label className="label">Checklist Items (one per line)</label>
+                          <textarea
+                            name="checklistItems"
+                            className="input-field"
+                            rows={2}
+                            defaultValue={pm.checklistItems ? JSON.parse(pm.checklistItems).join('\n') : ''}
+                          />
+                        </div>
+                        <button type="submit" className="btn-primary w-full text-xs">Save Changes</button>
+                      </form>
+                    </details>
+                    {userRole === 'ADMIN' && (
+                      <form action={deletePmSchedule} className="mt-2" onSubmit={() => confirm('Delete this PM schedule?')}>
+                        <input type="hidden" name="id" value={pm.id} />
+                        <button type="submit" className="btn-danger w-full text-xs">
+                          <Trash2 className="mr-1 h-3 w-3" /> Delete Schedule
+                        </button>
+                      </form>
+                    )}
+                  </div>
                 )}
               </div>
             );

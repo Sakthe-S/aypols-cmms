@@ -1,7 +1,11 @@
-import { query, toCamel } from '@/lib/db';
+import { query, queryOne, execute, toCamel } from '@/lib/db';
 import Link from 'next/link';
+import { revalidatePath } from 'next/cache';
+import { redirect } from 'next/navigation';
 import { getStatusColor, getPriorityColor, formatDate } from '@/lib/utils';
-import { Plus, Search, Filter } from 'lucide-react';
+import { Plus, Search, Filter, Trash2 } from 'lucide-react';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -10,6 +14,9 @@ export default async function TicketsPage({
 }: {
   searchParams: { status?: string; priority?: string; search?: string };
 }) {
+  const session = await getServerSession(authOptions);
+  const userRole = (session?.user as any)?.role;
+  const canDelete = userRole === 'SUPERVISOR' || userRole === 'ADMIN';
   const conditions: string[] = [];
   const params: unknown[] = [];
   if (searchParams.status && searchParams.status !== 'all') {
@@ -47,6 +54,25 @@ export default async function TicketsPage({
       assignedTo: r.assignedToName ? { name: r.assignedToName } : null,
     };
   });
+
+  async function deleteTicket(formData: FormData) {
+    'use server';
+    if (userRole !== 'SUPERVISOR' && userRole !== 'ADMIN') return;
+    const ticketId = Number(formData.get('id'));
+    const statusRow = await queryOne<{ status: string }>(
+      `SELECT status FROM maintenance_tickets WHERE id = $1`,
+      [ticketId]
+    );
+    if (!statusRow || statusRow.status !== 'open') return;
+    await execute(`DELETE FROM ticket_progress_logs WHERE ticket_id = $1`, [ticketId]);
+    await execute(`DELETE FROM safety_checklist_completions WHERE ticket_id = $1`, [ticketId]);
+    await execute(`DELETE FROM ticket_spare_parts WHERE ticket_id = $1`, [ticketId]);
+    await execute(`DELETE FROM stock_transactions WHERE reference_ticket_id = $1`, [ticketId]);
+    await execute(`DELETE FROM notifications WHERE link_url = $1`, [`/tickets/${ticketId}`]);
+    await execute(`DELETE FROM maintenance_tickets WHERE id = $1`, [ticketId]);
+    revalidatePath('/tickets');
+    redirect('/tickets');
+  }
 
   return (
     <div className="space-y-6">
@@ -112,8 +138,10 @@ export default async function TicketsPage({
                 <th className="table-header px-6 py-3">Status</th>
                 <th className="table-header px-6 py-3">Reported By</th>
                 <th className="table-header px-6 py-3">Assigned To</th>
+                <th className="table-header px-6 py-3">Expected Done</th>
                 <th className="table-header px-6 py-3">Date</th>
                 <th className="table-header px-6 py-3">Cost</th>
+                {canDelete && <th className="table-header px-6 py-3">Actions</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -146,16 +174,33 @@ export default async function TicketsPage({
                     {ticket.assignedTo?.name || '-'}
                   </td>
                   <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-500">
+                    {ticket.expectedCompletionDate ? formatDate(ticket.expectedCompletionDate) : '-'}
+                  </td>
+                  <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-500">
                     {formatDate(ticket.reportedDate)}
                   </td>
                   <td className="whitespace-nowrap px-6 py-4 text-sm font-medium text-gray-900">
                     {ticket.totalRepairCost ? `₹${ticket.totalRepairCost.toLocaleString('en-IN')}` : '-'}
                   </td>
+                  {canDelete && (
+                    <td className="whitespace-nowrap px-6 py-4">
+                      {ticket.status === 'open' ? (
+                        <form action={deleteTicket} onSubmit={() => confirm('Delete this ticket?')}>
+                          <input type="hidden" name="id" value={ticket.id} />
+                          <button type="submit" className="btn-danger px-3 py-1 text-xs">
+                            <Trash2 className="mr-1 h-3 w-3" /> Delete
+                          </button>
+                        </form>
+                      ) : (
+                        <span className="text-xs text-gray-400">-</span>
+                      )}
+                    </td>
+                  )}
                 </tr>
               ))}
               {tickets.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="px-6 py-12 text-center text-sm text-gray-500">
+                  <td colSpan={canDelete ? 11 : 10} className="px-6 py-12 text-center text-sm text-gray-500">
                     No tickets found
                   </td>
                 </tr>
@@ -168,14 +213,12 @@ export default async function TicketsPage({
       {/* Tickets Cards (mobile) */}
       <div className="space-y-3 md:hidden">
         {tickets.map((ticket) => (
-          <Link
-            key={ticket.id}
-            href={`/tickets/${ticket.id}`}
-            className="card block p-4 hover:shadow-md transition-shadow"
-          >
+          <div key={ticket.id} className="card p-4">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <p className="font-semibold text-primary-600">{ticket.ticketNumber}</p>
+                <Link href={`/tickets/${ticket.id}`} className="font-semibold text-primary-600 hover:underline">
+                  {ticket.ticketNumber}
+                </Link>
                 <p className="mt-0.5 text-sm text-gray-700">{ticket.machine.machineName}</p>
                 <p className="mt-1 text-xs text-gray-500 line-clamp-2">{ticket.issueDescription}</p>
               </div>
@@ -197,7 +240,20 @@ export default async function TicketsPage({
             {ticket.assignedTo && (
               <div className="mt-1 text-xs text-gray-500">Assigned: {ticket.assignedTo.name}</div>
             )}
-          </Link>
+            {ticket.expectedCompletionDate && (
+              <div className="mt-1 text-xs text-gray-500">
+                Expected: {formatDate(ticket.expectedCompletionDate)}
+              </div>
+            )}
+            {canDelete && ticket.status === 'open' && (
+              <form action={deleteTicket} className="mt-2" onSubmit={() => confirm('Delete this ticket?')}>
+                <input type="hidden" name="id" value={ticket.id} />
+                <button type="submit" className="btn-danger w-full text-xs">
+                  <Trash2 className="mr-1 h-3 w-3" /> Delete Ticket
+                </button>
+              </form>
+            )}
+          </div>
         ))}
         {tickets.length === 0 && (
           <p className="card p-12 text-center text-sm text-gray-500">No tickets found</p>

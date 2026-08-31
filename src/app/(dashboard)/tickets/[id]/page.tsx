@@ -14,6 +14,7 @@ import {
   Package,
   Plus,
   MessageSquare,
+  Trash2,
 } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
@@ -121,10 +122,11 @@ export default async function TicketDetailPage({
     'use server';
     if (userRole !== 'SUPERVISOR' && userRole !== 'ADMIN') return;
     const assignedToId = Number(formData.get('assignedToId'));
+    const expectedCompletionDate = formData.get('expectedCompletionDate') as string || null;
     await withTransaction(async (tx) => {
       await tx.query(
-        `UPDATE maintenance_tickets SET assigned_to_id = $1, status = 'allocated', allocated_date = NOW() WHERE id = $2`,
-        [assignedToId, ticketId]
+        `UPDATE maintenance_tickets SET assigned_to_id = $1, status = 'allocated', allocated_date = NOW(), expected_completion_date = COALESCE($3, expected_completion_date) WHERE id = $2`,
+        [assignedToId, ticketId, expectedCompletionDate || null]
       );
       await tx.query(
         `INSERT INTO ticket_progress_logs (ticket_id, user_id, notes, log_type) VALUES ($1, $2, $3, $4)`,
@@ -141,6 +143,23 @@ export default async function TicketDetailPage({
           `/tickets/${ticketId}`,
         ]
       );
+      const assignedUser = await tx.query<{ name: string }>(
+        `SELECT name FROM users WHERE id = $1`,
+        [assignedToId]
+      );
+      const assignedName = assignedUser.rows[0]?.name || 'a technician';
+      const allocationMessage = `${ticket.ticketNumber} allocated to ${assignedName}: ${String(ticket.issueDescription || '').slice(0, 120)}`;
+      const supervisorRows = await tx.query<{ id: number }>(
+        `SELECT id FROM users WHERE role IN ('SUPERVISOR', 'ADMIN') AND id <> $1 AND is_active = true`,
+        [assignedToId]
+      );
+      for (const sup of supervisorRows.rows) {
+        await tx.query(
+          `INSERT INTO notifications (user_id, title, message, type, link_url)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [sup.id, 'Ticket Allocated', allocationMessage, 'ticket_assigned', `/tickets/${ticketId}`]
+        );
+      }
     });
     revalidatePath(`/tickets/${ticketId}`);
     redirect(`/tickets/${ticketId}`);
@@ -365,6 +384,28 @@ export default async function TicketDetailPage({
     redirect(`/tickets/${ticketId}`);
   }
 
+  async function deleteTicket() {
+    'use server';
+    if (userRole !== 'SUPERVISOR' && userRole !== 'ADMIN') return;
+    if (ticket.status !== 'open') return;
+
+    await withTransaction(async (tx) => {
+      await tx.query(`DELETE FROM ticket_progress_logs WHERE ticket_id = $1`, [ticketId]);
+      await tx.query(`DELETE FROM safety_checklist_completions WHERE ticket_id = $1`, [ticketId]);
+      await tx.query(
+        `UPDATE spare_parts SET current_qty = current_qty + tsp.qty
+         FROM ticket_spare_parts tsp WHERE tsp.part_id = spare_parts.id AND tsp.ticket_id = $1`,
+        [ticketId]
+      );
+      await tx.query(`DELETE FROM ticket_spare_parts WHERE ticket_id = $1`, [ticketId]);
+      await tx.query(`DELETE FROM stock_transactions WHERE reference_ticket_id = $1`, [ticketId]);
+      await tx.query(`DELETE FROM notifications WHERE link_url = $1`, [`/tickets/${ticketId}`]);
+      await tx.query(`DELETE FROM maintenance_tickets WHERE id = $1`, [ticketId]);
+    });
+
+    redirect('/tickets');
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -381,7 +422,20 @@ export default async function TicketDetailPage({
             {ticket.machine.machineName} &middot; Reported by {ticket.reportedBy.name} on{' '}
             {formatDateTime(ticket.reportedDate)}
           </p>
+          {ticket.expectedCompletionDate && (
+            <p className="mt-2 inline-flex items-center gap-2 rounded-lg bg-primary-50 px-3 py-1.5 text-sm font-medium text-primary-700">
+              <Clock className="h-4 w-4" />
+              Expected completion: {formatDateTime(ticket.expectedCompletionDate)}
+            </p>
+          )}
         </div>
+        {ticket.status === 'open' && (userRole === 'SUPERVISOR' || userRole === 'ADMIN') && (
+          <form action={deleteTicket} onSubmit={() => confirm('Delete this ticket? This cannot be undone.')}>
+            <button type="submit" className="btn-danger">
+              <Trash2 className="mr-2 h-4 w-4" /> Delete Ticket
+            </button>
+          </form>
+        )}
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
@@ -593,6 +647,15 @@ export default async function TicketDetailPage({
                     ))}
                   </select>
                 </div>
+                <div>
+                  <label className="label">Expected Completion Date</label>
+                  <input
+                    type="datetime-local"
+                    name="expectedCompletionDate"
+                    className="input-field"
+                    defaultValue={ticket.expectedCompletionDate ? new Date(ticket.expectedCompletionDate).toISOString().slice(0, 16) : ''}
+                  />
+                </div>
                 <button type="submit" className="btn-primary w-full">
                   <User className="mr-2 h-4 w-4" /> Allocate Ticket
                 </button>
@@ -744,6 +807,12 @@ export default async function TicketDetailPage({
               <div className="flex justify-between">
                 <span className="text-gray-500">Assigned To</span>
                 <span className="text-gray-700">{ticket.assignedTo?.name || '-'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Expected Completion</span>
+                <span className="text-gray-700">
+                  {ticket.expectedCompletionDate ? formatDateTime(ticket.expectedCompletionDate) : '-'}
+                </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-500">Downtime</span>

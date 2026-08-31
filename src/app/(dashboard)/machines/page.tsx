@@ -1,11 +1,18 @@
-import { query, toCamel } from '@/lib/db';
+import { query, queryOne, execute, toCamel } from '@/lib/db';
 import Link from 'next/link';
+import { revalidatePath } from 'next/cache';
+import { redirect } from 'next/navigation';
 import { formatCurrency, formatDate, getStatusColor } from '@/lib/utils';
-import { Plus, Wrench } from 'lucide-react';
+import { Plus, Wrench, Trash2 } from 'lucide-react';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
 export default async function MachinesPage() {
+  const session = await getServerSession(authOptions);
+  const userRole = (session?.user as any)?.role;
+  const userId = Number((session?.user as any)?.id);
   const rows = await query<Record<string, unknown>>(
     `SELECT m.*,
             (SELECT count(*)::int FROM maintenance_tickets t WHERE t.machine_id = m.id) AS ticket_count
@@ -20,6 +27,23 @@ export default async function MachinesPage() {
       _count: { tickets: Number(r.ticketCount || 0) },
     };
   });
+
+  async function deleteMachine(formData: FormData) {
+    'use server';
+    if (userRole !== 'ADMIN') return;
+    const machineId = Number(formData.get('id'));
+    const ticketCount = await queryOne<{ count: number }>(
+      `SELECT count(*)::int AS count FROM maintenance_tickets WHERE machine_id = $1`,
+      [machineId]
+    );
+    if (ticketCount?.count) return;
+    await execute(`DELETE FROM pm_schedules WHERE machine_id = $1`, [machineId]);
+    await execute(`DELETE FROM amc_records WHERE machine_id = $1`, [machineId]);
+    await execute(`DELETE FROM calibration_records WHERE machine_id = $1`, [machineId]);
+    await execute(`DELETE FROM machines WHERE id = $1`, [machineId]);
+    revalidatePath('/machines');
+    redirect('/machines');
+  }
 
   return (
     <div className="space-y-6">
@@ -36,14 +60,16 @@ export default async function MachinesPage() {
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {machines.map((machine) => (
-          <Link key={machine.id} href={`/machines/${machine.id}`} className="card p-5 hover:shadow-md transition-shadow">
+          <div key={machine.id} className="card p-5 hover:shadow-md transition-shadow">
             <div className="flex items-start justify-between">
               <div className="flex items-center gap-3">
                 <div className="rounded-lg bg-primary-50 p-2">
                   <Wrench className="h-5 w-5 text-primary-600" />
                 </div>
                 <div>
-                  <h3 className="font-semibold text-gray-900">{machine.machineName}</h3>
+                  <Link href={`/machines/${machine.id}`} className="font-semibold text-gray-900 hover:text-primary-600">
+                    {machine.machineName}
+                  </Link>
                   <p className="text-xs text-gray-500">{machine.serialNumber}</p>
                 </div>
               </div>
@@ -71,7 +97,18 @@ export default async function MachinesPage() {
                 </span>
               </div>
             </div>
-          </Link>
+            <Link href={`/machines/${machine.id}`} className="mt-3 inline-block text-xs font-medium text-primary-600 hover:underline">
+              View Details →
+            </Link>
+            {userRole === 'ADMIN' && machine._count.tickets === 0 && (
+              <form action={deleteMachine} className="mt-2" onSubmit={() => confirm('Delete this machine?')}>
+                <input type="hidden" name="id" value={machine.id} />
+                <button type="submit" className="btn-danger w-full text-xs">
+                  <Trash2 className="mr-1 h-3 w-3" /> Delete Machine
+                </button>
+              </form>
+            )}
+          </div>
         ))}
       </div>
     </div>

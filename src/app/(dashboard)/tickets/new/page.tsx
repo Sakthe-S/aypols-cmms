@@ -18,6 +18,7 @@ export default async function NewTicketPage() {
     const priority = formData.get('priority') as string;
     const category = formData.get('category') as string;
     const issueDescription = formData.get('issueDescription') as string;
+    const expectedCompletionDate = formData.get('expectedCompletionDate') as string || null;
     const userId = Number((session?.user as any)?.id);
     if (!userId) return;
 
@@ -28,11 +29,31 @@ export default async function NewTicketPage() {
     const ticketNumber = seqRes?.ticket_number;
     if (!ticketNumber) return;
 
-    await execute(
-      `INSERT INTO maintenance_tickets (ticket_number, machine_id, reported_by_id, priority, category, issue_description)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [ticketNumber, machineId, userId, priority, category || null, issueDescription]
+    const insertRes = await queryOne<{ id: number }>(
+      `INSERT INTO maintenance_tickets (ticket_number, machine_id, reported_by_id, priority, category, issue_description, expected_completion_date)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+      [ticketNumber, machineId, userId, priority, category || null, issueDescription, expectedCompletionDate || null]
     );
+    const ticketId = insertRes?.id;
+    if (!ticketId) return;
+
+    const machineRow = await queryOne<{ machine_name: string }>(
+      `SELECT machine_name FROM machines WHERE id = $1`,
+      [machineId]
+    );
+    const notifTitle = `New Ticket ${ticketNumber}`;
+    const notifMessage = `${ticketNumber} - ${machineRow?.machine_name || ''}: ${String(issueDescription || '').slice(0, 120)}`;
+
+    const supervisors = await query<{ id: number }>(
+      `SELECT id FROM users WHERE role IN ('SUPERVISOR', 'ADMIN') AND is_active = true`
+    );
+    for (const sup of supervisors) {
+      await execute(
+        `INSERT INTO notifications (user_id, title, message, type, link_url)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [sup.id, notifTitle, notifMessage, 'ticket_created', `/tickets/${ticketId}`]
+      );
+    }
 
     redirect('/tickets');
   }
@@ -90,6 +111,15 @@ export default async function NewTicketPage() {
             rows={4}
             placeholder="Describe the issue in detail..."
             required
+          />
+        </div>
+
+        <div>
+          <label className="label">Expected Completion Date</label>
+          <input
+            type="datetime-local"
+            name="expectedCompletionDate"
+            className="input-field"
           />
         </div>
 

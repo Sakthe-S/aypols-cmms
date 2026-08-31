@@ -1,6 +1,6 @@
-import { query, toCamel } from '@/lib/db';
+import { query, execute, toCamel } from '@/lib/db';
 import { formatDate } from '@/lib/utils';
-import { Shield, BookOpen, Heart, FileCheck } from 'lucide-react';
+import { Shield, BookOpen, Heart, FileCheck, History, Trash2 } from 'lucide-react';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { getServerSession } from 'next-auth';
@@ -10,6 +10,11 @@ export const dynamic = 'force-dynamic';
 
 export default async function EhsPage() {
   const session = await getServerSession(authOptions);
+  const userRole = (session?.user as any)?.role;
+  const userId = Number((session?.user as any)?.id);
+  const isAdmin = userRole === 'ADMIN';
+  const canManage = userRole === 'EHS_OFFICER' || userRole === 'ADMIN' || userRole === 'SUPERVISOR';
+  const now = new Date();
 
   const checklistRows = await query<Record<string, unknown>>(
     `SELECT * FROM safety_checklists WHERE is_active = true`
@@ -39,7 +44,130 @@ export default async function EhsPage() {
     `SELECT * FROM health_compliance_records WHERE is_active = true`
   )).map(toCamel);
 
-  const now = new Date();
+  const overrideHistoryRows = await query<Record<string, unknown>>(
+    `SELECT oh.*, u.name AS overridden_by_name
+     FROM compliance_override_history oh
+     LEFT JOIN users u ON u.id = oh.overridden_by_id
+     ORDER BY oh.created_at DESC
+     LIMIT 100`
+  );
+  const overrideHistory = overrideHistoryRows.map(row => ({
+    ...toCamel(row),
+    overriddenBy: { name: row['overridden_by_name'] || 'Unknown' },
+  }));
+
+  async function recordOverride(formData: FormData) {
+    'use server';
+    if (userRole !== 'EHS_OFFICER' && userRole !== 'ADMIN' && userRole !== 'SUPERVISOR') return;
+    const recordType = formData.get('recordType') as string;
+    const recordId = Number(formData.get('recordId'));
+    const reason = (formData.get('reason') as string) || '';
+    if (!reason) return;
+
+    await execute(
+      `INSERT INTO compliance_override_history (record_type, record_id, overridden_by_id, reason)
+       VALUES ($1, $2, $3, $4)`,
+      [recordType, recordId, userId, reason]
+    );
+    revalidatePath('/ehs');
+    redirect('/ehs');
+  }
+
+  async function markChecklistComplete(formData: FormData) {
+    'use server';
+    if (userRole !== 'EHS_OFFICER' && userRole !== 'ADMIN' && userRole !== 'SUPERVISOR') return;
+    const checklistId = Number(formData.get('checklistId'));
+    await execute(
+      `INSERT INTO safety_checklist_completions (checklist_id, completed_by_id, is_approved, responses)
+       VALUES ($1, $2, true, $3)`,
+      [checklistId, userId, JSON.stringify([{ item: 'Completed', checked: true, notes: '' }])]
+    );
+    revalidatePath('/ehs');
+    redirect('/ehs');
+  }
+
+  async function addChecklist(formData: FormData) {
+    'use server';
+    if (userRole !== 'EHS_OFFICER' && userRole !== 'ADMIN') return;
+    const name = formData.get('name') as string;
+    const jobType = formData.get('jobType') as string;
+    const items = (formData.get('items') as string) || '';
+    const itemList = items.split('\n').map((s) => s.trim()).filter(Boolean);
+    if (!name || itemList.length === 0) return;
+    await execute(
+      `INSERT INTO safety_checklists (name, job_type, checklist_items, is_active)
+       VALUES ($1, $2, $3, true)`,
+      [name, jobType || null, JSON.stringify(itemList)]
+    );
+    revalidatePath('/ehs');
+    redirect('/ehs');
+  }
+
+  async function deleteChecklist(formData: FormData) {
+    'use server';
+    if (userRole !== 'ADMIN') return;
+    const id = Number(formData.get('id'));
+    await execute(`DELETE FROM safety_checklists WHERE id = $1`, [id]);
+    revalidatePath('/ehs');
+    redirect('/ehs');
+  }
+
+  async function addTraining(formData: FormData) {
+    'use server';
+    if (userRole !== 'EHS_OFFICER' && userRole !== 'ADMIN') return;
+    const trainingName = formData.get('trainingName') as string;
+    const trainingType = formData.get('trainingType') as string;
+    const description = formData.get('description') as string;
+    const frequency = formData.get('frequency') as string;
+    const nextDueDate = formData.get('nextDueDate') as string || null;
+    const assignedToIds = (formData.get('assignedToIds') as string) || '';
+    const ids = assignedToIds.split(',').map((s) => Number(s.trim())).filter(Boolean);
+    if (!trainingName) return;
+    await execute(
+      `INSERT INTO training_records (training_name, training_type, description, frequency, next_due_date, assigned_to_ids, is_active)
+       VALUES ($1, $2, $3, $4, $5, $6, true)`,
+      [trainingName, trainingType || 'safety', description || null, frequency || null, nextDueDate || null, JSON.stringify(ids)]
+    );
+    revalidatePath('/ehs');
+    redirect('/ehs');
+  }
+
+  async function deleteTraining(formData: FormData) {
+    'use server';
+    if (userRole !== 'ADMIN') return;
+    const id = Number(formData.get('id'));
+    await execute(`DELETE FROM training_completions WHERE training_id = $1`, [id]);
+    await execute(`DELETE FROM training_records WHERE id = $1`, [id]);
+    revalidatePath('/ehs');
+    redirect('/ehs');
+  }
+
+  async function addHealthRecord(formData: FormData) {
+    'use server';
+    if (userRole !== 'EHS_OFFICER' && userRole !== 'ADMIN') return;
+    const recordName = formData.get('recordName') as string;
+    const recordType = formData.get('recordType') as string;
+    const frequency = formData.get('frequency') as string;
+    const nextDueDate = formData.get('nextDueDate') as string || null;
+    if (!recordName) return;
+    await execute(
+      `INSERT INTO health_compliance_records (record_name, record_type, frequency, next_due_date, is_active)
+       VALUES ($1, $2, $3, $4, true)`,
+      [recordName, recordType || 'health', frequency || null, nextDueDate || null]
+    );
+    revalidatePath('/ehs');
+    redirect('/ehs');
+  }
+
+  async function deleteHealthRecord(formData: FormData) {
+    'use server';
+    if (userRole !== 'ADMIN') return;
+    const id = Number(formData.get('id'));
+    await execute(`DELETE FROM health_compliance_records WHERE id = $1`, [id]);
+    revalidatePath('/ehs');
+    redirect('/ehs');
+  }
+
 
   return (
     <div className="space-y-8">
@@ -50,9 +178,31 @@ export default async function EhsPage() {
 
       {/* Safety Checklists */}
       <div>
-        <div className="mb-4 flex items-center gap-2">
-          <Shield className="h-5 w-5 text-primary-600" />
-          <h2 className="text-lg font-semibold text-gray-900">Safety Checklists</h2>
+        <div className="mb-4 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Shield className="h-5 w-5 text-primary-600" />
+            <h2 className="text-lg font-semibold text-gray-900">Safety Checklists</h2>
+          </div>
+          {canManage && (
+            <details className="text-sm">
+              <summary className="cursor-pointer font-medium text-primary-600 hover:underline">+ Add Checklist</summary>
+              <form action={addChecklist} className="card mt-2 w-80 space-y-3 p-4">
+                <div>
+                  <label className="label">Name *</label>
+                  <input type="text" name="name" className="input-field" required />
+                </div>
+                <div>
+                  <label className="label">Job Type</label>
+                  <input type="text" name="jobType" className="input-field" placeholder="e.g. mechanical" />
+                </div>
+                <div>
+                  <label className="label">Checklist Items (one per line)</label>
+                  <textarea name="items" className="input-field" rows={3} required />
+                </div>
+                <button type="submit" className="btn-primary w-full text-xs">Add Checklist</button>
+              </form>
+            </details>
+          )}
         </div>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {checklists.map((cl) => {
@@ -62,7 +212,7 @@ export default async function EhsPage() {
                 <div className="flex items-start justify-between">
                   <div>
                     <h3 className="font-semibold text-gray-900">{cl.name}</h3>
-                    <p className="text-sm text-gray-500">Job Type: {cl.jobType}</p>
+                    <p className="text-sm text-gray-500">Job Type: {cl.jobType || '-'}</p>
                   </div>
                   <span className="badge bg-blue-100 text-blue-800">{items.length} items</span>
                 </div>
@@ -80,6 +230,39 @@ export default async function EhsPage() {
                     {cl.completions[0].isApproved ? ' (Approved)' : ' (Pending Approval)'}
                   </p>
                 )}
+                {canManage && (
+                  <div className="mt-3 space-y-2 border-t border-gray-100 pt-3">
+                    <form action={markChecklistComplete}>
+                      <input type="hidden" name="checklistId" value={cl.id} />
+                      <button type="submit" className="btn-success w-full text-xs">Mark Complete</button>
+                    </form>
+                    <details>
+                      <summary className="cursor-pointer text-xs font-medium text-yellow-700 hover:underline">
+                        Override with Reason
+                      </summary>
+                      <form action={recordOverride} className="mt-2 space-y-2">
+                        <input type="hidden" name="recordType" value="safety_checklist" />
+                        <input type="hidden" name="recordId" value={cl.id} />
+                        <input
+                          type="text"
+                          name="reason"
+                          className="input-field"
+                          placeholder="Override reason (required)"
+                          required
+                        />
+                        <button type="submit" className="btn-danger w-full text-xs">Submit Override</button>
+                      </form>
+                    </details>
+                    {isAdmin && (
+                      <form action={deleteChecklist} onSubmit={() => confirm('Delete this checklist?')}>
+                        <input type="hidden" name="id" value={cl.id} />
+                        <button type="submit" className="btn-danger w-full text-xs">
+                          <Trash2 className="mr-1 h-3 w-3" /> Delete Checklist
+                        </button>
+                      </form>
+                    )}
+                  </div>
+                )}
               </div>
             );
           })}
@@ -91,9 +274,49 @@ export default async function EhsPage() {
 
       {/* Training Records */}
       <div>
-        <div className="mb-4 flex items-center gap-2">
-          <BookOpen className="h-5 w-5 text-primary-600" />
-          <h2 className="text-lg font-semibold text-gray-900">Training & Compliance</h2>
+        <div className="mb-4 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <BookOpen className="h-5 w-5 text-primary-600" />
+            <h2 className="text-lg font-semibold text-gray-900">Training & Compliance</h2>
+          </div>
+          {canManage && (
+            <details className="text-sm">
+              <summary className="cursor-pointer font-medium text-primary-600 hover:underline">+ Add Training</summary>
+              <form action={addTraining} className="card mt-2 w-80 space-y-3 p-4">
+                <div>
+                  <label className="label">Training Name *</label>
+                  <input type="text" name="trainingName" className="input-field" required />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="label">Type</label>
+                    <select name="trainingType" className="input-field">
+                      <option value="fire">Fire</option>
+                      <option value="first_aid">First Aid</option>
+                      <option value="safety">Safety</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="label">Frequency</label>
+                    <input type="text" name="frequency" className="input-field" placeholder="e.g. yearly" />
+                  </div>
+                </div>
+                <div>
+                  <label className="label">Next Due</label>
+                  <input type="date" name="nextDueDate" className="input-field" />
+                </div>
+                <div>
+                  <label className="label">Description</label>
+                  <textarea name="description" className="input-field" rows={2} />
+                </div>
+                <div>
+                  <label className="label">Assigned User IDs (comma separated)</label>
+                  <input type="text" name="assignedToIds" className="input-field" placeholder="1,2,3" />
+                </div>
+                <button type="submit" className="btn-primary w-full text-xs">Add Training</button>
+              </form>
+            </details>
+          )}
         </div>
         <div className="card hidden overflow-hidden md:block">
           <div className="overflow-x-auto">
@@ -107,6 +330,7 @@ export default async function EhsPage() {
                   <th className="table-header px-6 py-3">Assigned</th>
                   <th className="table-header px-6 py-3">Completed</th>
                   <th className="table-header px-6 py-3">Status</th>
+                  {canManage && <th className="table-header px-6 py-3">Actions</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -137,11 +361,42 @@ export default async function EhsPage() {
                           <span className="badge bg-yellow-100 text-yellow-800">Pending</span>
                         )}
                       </td>
+                      {canManage && (
+                        <td className="px-6 py-3">
+                          <div className="flex items-center gap-2">
+                            <details>
+                              <summary className="cursor-pointer text-xs font-medium text-yellow-700 hover:underline">
+                                Override
+                              </summary>
+                              <form action={recordOverride} className="mt-1 flex items-center gap-1">
+                                <input type="hidden" name="recordType" value="training" />
+                                <input type="hidden" name="recordId" value={tr.id} />
+                                <input
+                                  type="text"
+                                  name="reason"
+                                  className="input-field"
+                                  placeholder="Reason"
+                                  required
+                                />
+                                <button type="submit" className="btn-danger text-xs px-2 py-1">OK</button>
+                              </form>
+                            </details>
+                            {isAdmin && (
+                              <form action={deleteTraining} onSubmit={() => confirm('Delete this training?')}>
+                                <input type="hidden" name="id" value={tr.id} />
+                                <button type="submit" className="btn-danger text-xs px-2 py-1">
+                                  <Trash2 className="h-3 w-3" />
+                                </button>
+                              </form>
+                            )}
+                          </div>
+                        </td>
+                      )}
                     </tr>
                   );
                 })}
                 {trainings.length === 0 && (
-                  <tr><td colSpan={7} className="px-6 py-8 text-center text-gray-500">No training records</td></tr>
+                  <tr><td colSpan={canManage ? 8 : 7} className="px-6 py-8 text-center text-gray-500">No training records</td></tr>
                 )}
               </tbody>
             </table>
@@ -187,9 +442,40 @@ export default async function EhsPage() {
 
       {/* Health & Legal Compliance */}
       <div>
-        <div className="mb-4 flex items-center gap-2">
-          <Heart className="h-5 w-5 text-primary-600" />
-          <h2 className="text-lg font-semibold text-gray-900">Health & Legal Compliance</h2>
+        <div className="mb-4 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Heart className="h-5 w-5 text-primary-600" />
+            <h2 className="text-lg font-semibold text-gray-900">Health & Legal Compliance</h2>
+          </div>
+          {canManage && (
+            <details className="text-sm">
+              <summary className="cursor-pointer font-medium text-primary-600 hover:underline">+ Add Record</summary>
+              <form action={addHealthRecord} className="card mt-2 w-80 space-y-3 p-4">
+                <div>
+                  <label className="label">Record Name *</label>
+                  <input type="text" name="recordName" className="input-field" required />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="label">Type</label>
+                    <select name="recordType" className="input-field">
+                      <option value="health">Health</option>
+                      <option value="legal">Legal</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="label">Frequency</label>
+                    <input type="text" name="frequency" className="input-field" placeholder="e.g. yearly" />
+                  </div>
+                </div>
+                <div>
+                  <label className="label">Next Due</label>
+                  <input type="date" name="nextDueDate" className="input-field" />
+                </div>
+                <button type="submit" className="btn-primary w-full text-xs">Add Record</button>
+              </form>
+            </details>
+          )}
         </div>
         <div className="card hidden overflow-hidden md:block">
           <div className="overflow-x-auto">
@@ -201,6 +487,7 @@ export default async function EhsPage() {
                   <th className="table-header px-6 py-3">Frequency</th>
                   <th className="table-header px-6 py-3">Next Due</th>
                   <th className="table-header px-6 py-3">Status</th>
+                  {canManage && <th className="table-header px-6 py-3">Actions</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -225,11 +512,42 @@ export default async function EhsPage() {
                           <span className="badge bg-green-100 text-green-800">Current</span>
                         )}
                       </td>
+                      {canManage && (
+                        <td className="px-6 py-3">
+                          <div className="flex items-center gap-2">
+                            <details>
+                              <summary className="cursor-pointer text-xs font-medium text-yellow-700 hover:underline">
+                                Override
+                              </summary>
+                              <form action={recordOverride} className="mt-1 flex items-center gap-1">
+                                <input type="hidden" name="recordType" value="health_compliance" />
+                                <input type="hidden" name="recordId" value={hr.id} />
+                                <input
+                                  type="text"
+                                  name="reason"
+                                  className="input-field"
+                                  placeholder="Reason"
+                                  required
+                                />
+                                <button type="submit" className="btn-danger text-xs px-2 py-1">OK</button>
+                              </form>
+                            </details>
+                            {isAdmin && (
+                              <form action={deleteHealthRecord} onSubmit={() => confirm('Delete this record?')}>
+                                <input type="hidden" name="id" value={hr.id} />
+                                <button type="submit" className="btn-danger text-xs px-2 py-1">
+                                  <Trash2 className="h-3 w-3" />
+                                </button>
+                              </form>
+                            )}
+                          </div>
+                        </td>
+                      )}
                     </tr>
                   );
                 })}
                 {healthRecords.length === 0 && (
-                  <tr><td colSpan={5} className="px-6 py-8 text-center text-gray-500">No compliance records</td></tr>
+                  <tr><td colSpan={canManage ? 6 : 5} className="px-6 py-8 text-center text-gray-500">No compliance records</td></tr>
                 )}
               </tbody>
             </table>
@@ -265,6 +583,51 @@ export default async function EhsPage() {
           )}
         </div>
       </div>
+
+      {/* Override History (Admin only) */}
+      {isAdmin && (
+        <div>
+          <div className="mb-4 flex items-center gap-2">
+            <History className="h-5 w-5 text-primary-600" />
+            <h2 className="text-lg font-semibold text-gray-900">Override History</h2>
+          </div>
+          <div className="card overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr>
+                  <th className="table-header px-6 py-3">Date</th>
+                  <th className="table-header px-6 py-3">Record Type</th>
+                  <th className="table-header px-6 py-3">Record ID</th>
+                  <th className="table-header px-6 py-3">Overridden By</th>
+                  <th className="table-header px-6 py-3">Reason</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {overrideHistory.map((oh) => (
+                  <tr key={oh.id} className="hover:bg-gray-50">
+                    <td className="whitespace-nowrap px-6 py-3 text-gray-500">
+                      {formatDate(oh.createdAt)}
+                    </td>
+                    <td className="whitespace-nowrap px-6 py-3">
+                      <span className="badge bg-yellow-100 text-yellow-800">{oh.recordType.replace('_', ' ')}</span>
+                    </td>
+                    <td className="px-6 py-3 text-gray-700">#{oh.recordId}</td>
+                    <td className="px-6 py-3 text-gray-700">{oh.overriddenBy.name}</td>
+                    <td className="px-6 py-3 text-gray-600">{oh.reason}</td>
+                  </tr>
+                ))}
+                {overrideHistory.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="px-6 py-8 text-center text-gray-500">
+                      No overrides recorded yet
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
