@@ -41,17 +41,35 @@ Create a `aypols` database and set `DATABASE_URL` in `.env`:
 DATABASE_URL="postgresql://postgres:sakthe123@localhost:5432/aypols"
 ```
 
-### 3. Seed Sample Data
+### 3. Apply Whatsapp Migration
+Adds WhatsApp delivery columns, the `notification_preferences` table, and the per-user
+opt-in flag. Idempotent - safe to run multiple times.
+```bash
+psql -d aypols -f migrations/0001_whatsapp_notifications.sql
+```
+
+### 4. Configure Twilio WhatsApp (optional, for WhatsApp notifications)
+Create a Twilio account, get a WhatsApp-enabled sender, then add to `.env`:
+```
+TWILIO_ACCOUNT_SID="your_account_sid"
+TWILIO_AUTH_TOKEN="your_auth_token"
+TWILIO_WHATSAPP_FROM="whatsapp:+14155238886"
+```
+Numbers are sent as-is; 10-digit numbers are prefixed with `91` (India).
+In Settings -> Notification Preferences, enable WhatsApp and optionally set per-type
+preferences, then use "Send Test WhatsApp" to verify delivery.
+
+### 5. Seed Sample Data
 ```bash
 npm run db:seed
 ```
 
-### 4. Start Development Server
+### 6. Start Development Server
 ```bash
 npm run dev
 ```
 
-### 5. Open in Browser
+### 7. Open in Browser
 ```
 http://localhost:3000
 ```

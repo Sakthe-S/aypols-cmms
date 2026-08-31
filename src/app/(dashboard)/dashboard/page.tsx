@@ -136,6 +136,33 @@ export default async function DashboardPage() {
     }
   }
 
+  // Low-stock notifications
+  const lowStockRecipients = await query<{ id: number }>(
+    `SELECT id FROM users WHERE role = ANY($1)`,
+    [['SUPERVISOR', 'STORE_ADMIN', 'ADMIN']]
+  );
+  const lowStockRecipientIds = lowStockRecipients.map(u => u.id);
+  const lowStockPartsAll = await query<{ part_code: string; part_name: string; current_qty: number; min_threshold: number; unit: string }>(
+    `SELECT part_code, part_name, current_qty, min_threshold, unit
+     FROM spare_parts WHERE current_qty <= min_threshold`
+  );
+  for (const part of lowStockPartsAll) {
+    const existing = await queryOne(
+      `SELECT id FROM notifications
+       WHERE type = 'low_stock' AND message ILIKE $1 AND created_at >= $2 LIMIT 1`,
+      [`%${part.part_code}%`, dayAgo]
+    );
+    if (!existing) {
+      for (const uid of lowStockRecipientIds) {
+        await execute(
+          `INSERT INTO notifications (user_id, title, message, type, link_url)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [uid, 'Low Stock Alert', `${part.part_name} (${part.part_code}) is below minimum threshold. Current: ${part.current_qty} ${part.unit}, Min: ${part.min_threshold}`, 'low_stock', '/inventory']
+        );
+      }
+    }
+  }
+
   // ── Dashboard Data ──
   const monthAhead = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
   const [

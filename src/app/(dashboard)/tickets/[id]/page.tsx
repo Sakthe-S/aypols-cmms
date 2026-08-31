@@ -130,6 +130,17 @@ export default async function TicketDetailPage({
         `INSERT INTO ticket_progress_logs (ticket_id, user_id, notes, log_type) VALUES ($1, $2, $3, $4)`,
         [ticketId, userId, 'Ticket allocated to technician', 'status_change']
       );
+      await tx.query(
+        `INSERT INTO notifications (user_id, title, message, type, link_url)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [
+          assignedToId,
+          'Ticket Assigned',
+          `${ticket.ticketNumber} - ${ticket.machine.machineName}: ${String(ticket.issueDescription || '').slice(0, 120)}`,
+          'ticket_assigned',
+          `/tickets/${ticketId}`,
+        ]
+      );
     });
     revalidatePath(`/tickets/${ticketId}`);
     redirect(`/tickets/${ticketId}`);

@@ -4,10 +4,15 @@ import { authOptions } from '@/lib/auth';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { User, Bell, Shield, Database, Save, Calendar } from 'lucide-react';
+import { isWhatsAppConfigured, sendWhatsApp } from '@/lib/whatsapp';
 
 export const dynamic = 'force-dynamic';
 
-export default async function SettingsPage() {
+export default async function SettingsPage({
+  searchParams,
+}: {
+  searchParams?: { whatsapp?: string };
+}) {
   const session = await getServerSession(authOptions);
   const userId = Number((session?.user as any)?.id);
   const userRole = (session?.user as any)?.role;
@@ -17,6 +22,16 @@ export default async function SettingsPage() {
     [userId]
   );
   const currentUser = currentUserRow ? toCamel(currentUserRow) : null;
+  const waConfigured = isWhatsAppConfigured();
+  const waEnabled = Boolean((currentUser as any)?.whatsappEnabled);
+  const userPhone = ((currentUser as any)?.phone as string | null) || null;
+
+  const prefRows = (await query<{ type: string; channel: string }>(
+    `SELECT type, channel FROM notification_preferences WHERE user_id = $1`,
+    [userId]
+  )).map(toCamel);
+  const prefMap: Record<string, string> = {};
+  for (const p of prefRows) prefMap[p.type] = p.channel;
   const allUsers = (await query<Record<string, unknown>>(
     `SELECT * FROM users ORDER BY name ASC`
   )).map(toCamel);
@@ -30,6 +45,45 @@ export default async function SettingsPage() {
     );
     revalidatePath('/settings');
     redirect('/settings');
+  }
+
+  async function updateWhatsAppPref(formData: FormData) {
+    'use server';
+    if (!userId) return;
+    const enabled = formData.get('whatsappEnabled') === 'on';
+    await execute(
+      `UPDATE users SET whatsapp_enabled = $1 WHERE id = $2`,
+      [enabled, userId]
+    );
+    revalidatePath('/settings');
+    redirect('/settings');
+  }
+
+  async function updateNotificationPref(formData: FormData) {
+    'use server';
+    if (!userId) return;
+    const type = formData.get('type') as string;
+    const channel = formData.get('channel') as string;
+    await execute(
+      `INSERT INTO notification_preferences (user_id, type, channel)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (user_id, type) DO UPDATE SET channel = EXCLUDED.channel, updated_at = NOW()`,
+      [userId, type, channel]
+    );
+    revalidatePath('/settings');
+    redirect('/settings');
+  }
+
+  async function sendTestWhatsApp() {
+    'use server';
+    if (!userPhone) {
+      redirect('/settings?whatsapp=error');
+    }
+    const res = await sendWhatsApp(
+      userPhone,
+      `*Aypols CMMS*\nTest WhatsApp notification from Settings.\n\nNotifications are working!`
+    );
+    redirect(res.ok ? '/settings?whatsapp=sent' : '/settings?whatsapp=error');
   }
 
   async function updateUserRole(formData: FormData) {
@@ -139,54 +193,121 @@ export default async function SettingsPage() {
         </div>
         <div className="card-body">
           <p className="mb-4 text-sm text-gray-500">
-            Configure how you receive notifications. WhatsApp integration is pending API setup.
+            Configure how you receive notifications. WhatsApp messages are delivered via Twilio.
           </p>
+
+          {searchParams?.whatsapp === 'sent' && (
+            <p className="mb-4 rounded-md bg-green-50 p-3 text-sm text-green-700">
+              Test WhatsApp message sent to your number.
+            </p>
+          )}
+          {searchParams?.whatsapp === 'error' && (
+            <p className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-700">
+              Could not send WhatsApp. Check TWILIO env variables and your phone number.
+            </p>
+          )}
+
           <div className="space-y-3">
-            <label className="flex items-center gap-3">
-              <input type="checkbox" defaultChecked className="h-4 w-4 rounded border-gray-300 text-primary-600" />
-              <span className="text-sm text-gray-700">In-App Notifications</span>
+            <div className="flex items-center justify-between rounded-lg border p-3">
+              <div>
+                <p className="text-sm font-medium text-gray-700">In-App Notifications</p>
+                <p className="text-xs text-gray-500">Always on</p>
+              </div>
               <span className="badge bg-green-100 text-green-800">Active</span>
-            </label>
-            <label className="flex items-center gap-3">
-              <input type="checkbox" className="h-4 w-4 rounded border-gray-300 text-primary-600" disabled />
-              <span className="text-sm text-gray-700">WhatsApp Notifications</span>
-              <span className="badge bg-yellow-100 text-yellow-800">Pending Setup</span>
-            </label>
-            <label className="flex items-center gap-3">
-              <input type="checkbox" className="h-4 w-4 rounded border-gray-300 text-primary-600" disabled />
-              <span className="text-sm text-gray-700">Email Notifications</span>
+            </div>
+
+            <form
+              action={updateWhatsAppPref}
+              className="flex items-center justify-between gap-4 rounded-lg border p-3"
+            >
+              <div>
+                <label htmlFor="whatsappEnabled" className="text-sm font-medium text-gray-700">
+                  WhatsApp Notifications
+                  <span className="ml-1 text-xs font-normal text-gray-500">(via Twilio)</span>
+                </label>
+                <p className="text-xs text-gray-500">
+                  {userPhone
+                    ? `Delivered to ${userPhone}`
+                    : 'Set your phone number in My Profile first'}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="whatsappEnabled"
+                  name="whatsappEnabled"
+                  defaultChecked={waEnabled}
+                  className="h-4 w-4 rounded border-gray-300 text-primary-600"
+                />
+                <button type="submit" className="btn-secondary py-1 text-xs">Save</button>
+              </div>
+            </form>
+
+            <div className="flex items-center justify-between rounded-lg border p-3">
+              <div className="text-sm">
+                <p className="text-sm font-medium text-gray-700">WhatsApp Delivery Status</p>
+                <p className="text-xs text-gray-500">
+                  {waConfigured ? 'Twilio is configured' : 'Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_WHATSAPP_FROM in .env'}
+                </p>
+              </div>
+              {!waConfigured ? (
+                <span className="badge bg-yellow-100 text-yellow-800">Not Configured</span>
+              ) : waEnabled ? (
+                <span className="badge bg-green-100 text-green-800">Active</span>
+              ) : (
+                <span className="badge bg-gray-100 text-gray-800">Disabled</span>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between rounded-lg border p-3">
+              <div>
+                <p className="text-sm font-medium text-gray-700">Email Notifications</p>
+                <p className="text-xs text-gray-500">Planned for a future phase</p>
+              </div>
               <span className="badge bg-gray-100 text-gray-800">Future Phase</span>
-            </label>
+            </div>
           </div>
-          <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div>
-              <label className="label">Low Stock Alerts</label>
-              <select className="input-field" defaultValue="in_app">
-                <option value="in_app">In-App Only</option>
-                <option value="whatsapp" disabled>WhatsApp (Coming Soon)</option>
-              </select>
-            </div>
-            <div>
-              <label className="label">PM Reminders</label>
-              <select className="input-field" defaultValue="in_app">
-                <option value="in_app">In-App Only</option>
-                <option value="whatsapp" disabled>WhatsApp (Coming Soon)</option>
-              </select>
-            </div>
-            <div>
-              <label className="label">Ticket Assignments</label>
-              <select className="input-field" defaultValue="in_app">
-                <option value="in_app">In-App Only</option>
-                <option value="whatsapp" disabled>WhatsApp (Coming Soon)</option>
-              </select>
-            </div>
-            <div>
-              <label className="label">Training Reminders</label>
-              <select className="input-field" defaultValue="in_app">
-                <option value="in_app">In-App Only</option>
-                <option value="whatsapp" disabled>WhatsApp (Coming Soon)</option>
-              </select>
-            </div>
+
+          <div className="mt-4 grid grid-cols-1 gap-4 border-t pt-4 sm:grid-cols-2">
+            {[
+              { type: 'low_stock', label: 'Low Stock Alerts' },
+              { type: 'pm_reminder', label: 'PM Reminders' },
+              { type: 'ticket_assigned', label: 'Ticket Assignments' },
+              { type: 'training_reminder', label: 'Training Reminders' },
+            ].map(({ type, label }) => {
+              const value = prefMap[type] ?? 'in_app';
+              return (
+                <form key={type} action={updateNotificationPref} className="flex items-end gap-2">
+                  <div className="flex-1">
+                    <label className="label">{label}</label>
+                    <select
+                      name="channel"
+                      defaultValue={value}
+                      disabled={!waEnabled}
+                      className="input-field"
+                    >
+                      <option value="in_app">In-App Only</option>
+                      <option value="whatsapp">In-App + WhatsApp</option>
+                    </select>
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={!waEnabled}
+                    className="btn-secondary px-3 py-2 text-xs"
+                  >
+                    Save
+                  </button>
+                </form>
+              );
+            })}
+          </div>
+
+          <div className="mt-6 border-t pt-4">
+            <form action={sendTestWhatsApp}>
+              <button type="submit" className="btn-secondary">
+                Send Test WhatsApp
+              </button>
+            </form>
           </div>
         </div>
       </div>
@@ -330,7 +451,9 @@ export default async function SettingsPage() {
             </div>
             <div>
               <p className="text-xs text-gray-500">WhatsApp Integration</p>
-              <p className="font-medium text-yellow-600">Pending</p>
+              <p className={`font-medium ${waConfigured ? 'text-green-600' : 'text-yellow-600'}`}>
+                {waConfigured ? 'Configured' : 'Pending API Setup'}
+              </p>
             </div>
             <div>
               <p className="text-xs text-gray-500">Phase 2 (Purchasing)</p>
