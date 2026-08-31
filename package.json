@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "db:seed": "npx tsx prisma/seed.ts"
+    "db:seed": "npx tsx prisma/seed.ts",
+    "sync": "git pull --ff-only origin main",
+    "db:migrate": "node -e \"const fs=require('fs');const{Pool}=require('pg');const p=new Pool({connectionString:process.env.DATABASE_URL});(async()=>{const glob=require('path');const dir=require('fs').readdirSync('migrations').filter(f=>f.endsWith('.sql')).sort();for(const f of dir){console.log('Applying',f);await p.query(fs.readFileSync('migrations/'+f,'utf8'));}console.log('Done. '+dir.length+' migration(s).');})().catch(e=>{console.error('Migration failed:',e.message);process.exit(1);}).finally(()=>p.end())\""
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

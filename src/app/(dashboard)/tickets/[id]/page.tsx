@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth';
 import { redirect, notFound } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { formatCurrency, formatDateTime, getStatusColor, getPriorityColor } from '@/lib/utils';
+import ConfirmForm from '@/components/ConfirmForm';
 import {
   Clock,
   Wrench,
@@ -14,7 +15,6 @@ import {
   Package,
   Plus,
   MessageSquare,
-  Trash2,
 } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
@@ -430,11 +430,11 @@ export default async function TicketDetailPage({
           )}
         </div>
         {ticket.status === 'open' && (userRole === 'SUPERVISOR' || userRole === 'ADMIN') && (
-          <form action={deleteTicket} onSubmit={() => confirm('Delete this ticket? This cannot be undone.')}>
+          <ConfirmForm action={deleteTicket} message="Delete this ticket? This cannot be undone.">
             <button type="submit" className="btn-danger">
-              <Trash2 className="mr-2 h-4 w-4" /> Delete Ticket
+              Delete Ticket
             </button>
-          </form>
+          </ConfirmForm>
         )}
       </div>
 

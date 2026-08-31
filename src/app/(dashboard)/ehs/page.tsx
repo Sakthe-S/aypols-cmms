@@ -1,10 +1,11 @@
 import { query, execute, toCamel } from '@/lib/db';
 import { formatDate } from '@/lib/utils';
-import { Shield, BookOpen, Heart, FileCheck, History, Trash2 } from 'lucide-react';
+import { Shield, BookOpen, Heart, FileCheck, History } from 'lucide-react';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
+import ConfirmForm from '@/components/ConfirmForm';
 
 export const dynamic = 'force-dynamic';
 
@@ -254,12 +255,12 @@ export default async function EhsPage() {
                       </form>
                     </details>
                     {isAdmin && (
-                      <form action={deleteChecklist} onSubmit={() => confirm('Delete this checklist?')}>
+                      <ConfirmForm action={deleteChecklist} message="Delete this checklist?">
                         <input type="hidden" name="id" value={cl.id} />
                         <button type="submit" className="btn-danger w-full text-xs">
-                          <Trash2 className="mr-1 h-3 w-3" /> Delete Checklist
+                          Delete Checklist
                         </button>
-                      </form>
+                      </ConfirmForm>
                     )}
                   </div>
                 )}
@@ -382,12 +383,12 @@ export default async function EhsPage() {
                               </form>
                             </details>
                             {isAdmin && (
-                              <form action={deleteTraining} onSubmit={() => confirm('Delete this training?')}>
+                              <ConfirmForm action={deleteTraining} message="Delete this training?" className="inline">
                                 <input type="hidden" name="id" value={tr.id} />
                                 <button type="submit" className="btn-danger text-xs px-2 py-1">
-                                  <Trash2 className="h-3 w-3" />
+                                  Delete
                                 </button>
-                              </form>
+                              </ConfirmForm>
                             )}
                           </div>
                         </td>
@@ -533,12 +534,12 @@ export default async function EhsPage() {
                               </form>
                             </details>
                             {isAdmin && (
-                              <form action={deleteHealthRecord} onSubmit={() => confirm('Delete this record?')}>
+                              <ConfirmForm action={deleteHealthRecord} message="Delete this record?" className="inline">
                                 <input type="hidden" name="id" value={hr.id} />
                                 <button type="submit" className="btn-danger text-xs px-2 py-1">
-                                  <Trash2 className="h-3 w-3" />
+                                  Delete
                                 </button>
-                              </form>
+                              </ConfirmForm>
                             )}
                           </div>
                         </td>

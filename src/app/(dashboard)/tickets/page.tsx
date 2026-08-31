@@ -3,9 +3,10 @@ import Link from 'next/link';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { getStatusColor, getPriorityColor, formatDate } from '@/lib/utils';
-import { Plus, Search, Filter, Trash2 } from 'lucide-react';
+import { Plus, Search, Filter } from 'lucide-react';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
+import ConfirmForm from '@/components/ConfirmForm';
 
 export const dynamic = 'force-dynamic';
 
@@ -185,12 +186,16 @@ export default async function TicketsPage({
                   {canDelete && (
                     <td className="whitespace-nowrap px-6 py-4">
                       {ticket.status === 'open' ? (
-                        <form action={deleteTicket} onSubmit={() => confirm('Delete this ticket?')}>
+                        <ConfirmForm
+                          action={deleteTicket}
+                          message="Delete this ticket?"
+                          className="inline"
+                        >
                           <input type="hidden" name="id" value={ticket.id} />
                           <button type="submit" className="btn-danger px-3 py-1 text-xs">
-                            <Trash2 className="mr-1 h-3 w-3" /> Delete
+                            Delete
                           </button>
-                        </form>
+                        </ConfirmForm>
                       ) : (
                         <span className="text-xs text-gray-400">-</span>
                       )}
@@ -246,12 +251,12 @@ export default async function TicketsPage({
               </div>
             )}
             {canDelete && ticket.status === 'open' && (
-              <form action={deleteTicket} className="mt-2" onSubmit={() => confirm('Delete this ticket?')}>
+              <ConfirmForm action={deleteTicket} message="Delete this ticket?" className="mt-2">
                 <input type="hidden" name="id" value={ticket.id} />
                 <button type="submit" className="btn-danger w-full text-xs">
-                  <Trash2 className="mr-1 h-3 w-3" /> Delete Ticket
+                  Delete Ticket
                 </button>
-              </form>
+              </ConfirmForm>
             )}
           </div>
         ))}

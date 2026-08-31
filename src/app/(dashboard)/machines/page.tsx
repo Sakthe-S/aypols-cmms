@@ -3,9 +3,10 @@ import Link from 'next/link';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { formatCurrency, formatDate, getStatusColor } from '@/lib/utils';
-import { Plus, Wrench, Trash2 } from 'lucide-react';
+import { Plus, Wrench } from 'lucide-react';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
+import ConfirmForm from '@/components/ConfirmForm';
 
 export const dynamic = 'force-dynamic';
 
@@ -101,12 +102,12 @@ export default async function MachinesPage() {
               View Details →
             </Link>
             {userRole === 'ADMIN' && machine._count.tickets === 0 && (
-              <form action={deleteMachine} className="mt-2" onSubmit={() => confirm('Delete this machine?')}>
+              <ConfirmForm action={deleteMachine} message="Delete this machine?" className="mt-2">
                 <input type="hidden" name="id" value={machine.id} />
                 <button type="submit" className="btn-danger w-full text-xs">
-                  <Trash2 className="mr-1 h-3 w-3" /> Delete Machine
+                  Delete Machine
                 </button>
-              </form>
+              </ConfirmForm>
             )}
           </div>
         ))}

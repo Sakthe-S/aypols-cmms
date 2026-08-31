@@ -5,7 +5,8 @@ import { redirect } from 'next/navigation';
 import { formatCurrency, formatDateTime } from '@/lib/utils';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { AlertTriangle, Trash2 } from 'lucide-react';
+import { AlertTriangle } from 'lucide-react';
+import ConfirmForm from '@/components/ConfirmForm';
 
 export const dynamic = 'force-dynamic';
 
@@ -185,11 +186,11 @@ export default async function PartDetailPage({ params }: { params: { id: string 
           </p>
         </div>
         {userRole === 'ADMIN' && (
-          <form action={deletePart} onSubmit={() => confirm('Delete this part and all its history?')}>
+          <ConfirmForm action={deletePart} message="Delete this part and all its history?">
             <button type="submit" className="btn-danger">
-              <Trash2 className="mr-2 h-4 w-4" /> Delete Part
+              Delete Part
             </button>
-          </form>
+          </ConfirmForm>
         )}
       </div>
 
@@ -321,12 +322,16 @@ export default async function PartDetailPage({ params }: { params: { id: string 
                       <td className="px-6 py-3 text-gray-500">{tx.reason || '-'}</td>
                       {canDelete && (
                         <td className="px-6 py-3">
-                          <form action={deleteStockTransaction} onSubmit={() => confirm('Delete this transaction? Stock quantity will be adjusted.')}>
+                          <ConfirmForm
+                            action={deleteStockTransaction}
+                            message="Delete this transaction? Stock quantity will be adjusted."
+                            className="inline"
+                          >
                             <input type="hidden" name="transactionId" value={tx.id} />
                             <button type="submit" className="btn-danger px-3 py-1 text-xs">
-                              <Trash2 className="mr-1 h-3 w-3" /> Delete
+                              Delete
                             </button>
-                          </form>
+                          </ConfirmForm>
                         </td>
                       )}
                     </tr>

@@ -1,11 +1,12 @@
 import { query, queryOne, execute, toCamel } from '@/lib/db';
 import { formatDate, getStatusColor } from '@/lib/utils';
-import { Calendar, Clock, CheckCircle2, Pencil, Trash2 } from 'lucide-react';
+import { Calendar, Clock, CheckCircle2, Pencil } from 'lucide-react';
 import Link from 'next/link';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
+import ConfirmForm from '@/components/ConfirmForm';
 
 export const dynamic = 'force-dynamic';
 
@@ -230,12 +231,12 @@ export default async function PmPage() {
                       </form>
                     </details>
                     {userRole === 'ADMIN' && (
-                      <form action={deletePmSchedule} className="mt-2" onSubmit={() => confirm('Delete this PM schedule?')}>
+                      <ConfirmForm action={deletePmSchedule} message="Delete this PM schedule?" className="mt-2">
                         <input type="hidden" name="id" value={pm.id} />
                         <button type="submit" className="btn-danger w-full text-xs">
-                          <Trash2 className="mr-1 h-3 w-3" /> Delete Schedule
+                          Delete Schedule
                         </button>
-                      </form>
+                      </ConfirmForm>
                     )}
                   </div>
                 )}

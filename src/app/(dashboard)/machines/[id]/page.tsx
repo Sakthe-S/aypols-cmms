@@ -5,7 +5,8 @@ import { formatCurrency, formatDate, formatDateTime, getStatusColor, getPriority
 import Link from 'next/link';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { Wrench, Clock, DollarSign, Calendar, AlertTriangle, Trash2 } from 'lucide-react';
+import { Wrench, Clock, DollarSign, Calendar, AlertTriangle } from 'lucide-react';
+import ConfirmForm from '@/components/ConfirmForm';
 
 export const dynamic = 'force-dynamic';
 
@@ -112,11 +113,11 @@ export default async function MachineDetailPage({ params }: { params: { id: stri
           </p>
         </div>
         {userRole === 'ADMIN' && (
-          <form action={deleteMachine} onSubmit={() => confirm('Delete this machine? All associated schedules will be removed.')}>
+          <ConfirmForm action={deleteMachine} message="Delete this machine? All associated schedules will be removed.">
             <button type="submit" className="btn-danger">
-              <Trash2 className="mr-2 h-4 w-4" /> Delete Machine
+              Delete Machine
             </button>
-          </form>
+          </ConfirmForm>
         )}
       </div>
 

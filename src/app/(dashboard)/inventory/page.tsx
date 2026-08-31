@@ -3,9 +3,10 @@ import Link from 'next/link';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { formatCurrency } from '@/lib/utils';
-import { Plus, Package, AlertTriangle, Search, Trash2 } from 'lucide-react';
+import { Plus, Package, AlertTriangle, Search } from 'lucide-react';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
+import ConfirmForm from '@/components/ConfirmForm';
 
 export const dynamic = 'force-dynamic';
 
@@ -198,12 +199,12 @@ export default async function InventoryPage({
                     </td>
                     {canDelete && (
                       <td className="whitespace-nowrap px-6 py-4">
-                        <form action={deletePart} onSubmit={() => confirm('Delete this part and its history?')}>
+                        <ConfirmForm action={deletePart} message="Delete this part and its history?" className="inline">
                           <input type="hidden" name="id" value={part.id} />
                           <button type="submit" className="btn-danger px-3 py-1 text-xs">
-                            <Trash2 className="mr-1 h-3 w-3" /> Delete
+                            Delete
                           </button>
-                        </form>
+                        </ConfirmForm>
                       </td>
                     )}
                   </tr>
@@ -261,12 +262,12 @@ export default async function InventoryPage({
               </div>
               <p className="mt-2 text-xs text-gray-500">{part.storageRoom}{part.rackBin ? `, ${part.rackBin}` : ''}</p>
               {canDelete && (
-                <form action={deletePart} className="mt-2" onSubmit={() => confirm('Delete this part and its history?')}>
+                <ConfirmForm action={deletePart} message="Delete this part and its history?" className="mt-2">
                   <input type="hidden" name="id" value={part.id} />
                   <button type="submit" className="btn-danger w-full text-xs">
-                    <Trash2 className="mr-1 h-3 w-3" /> Delete Part
+                    Delete Part
                   </button>
-                </form>
+                </ConfirmForm>
               )}
             </Link>
           );
