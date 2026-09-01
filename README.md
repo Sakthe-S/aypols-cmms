@@ -91,11 +91,12 @@ http://localhost:3000
 
 The database is seeded with real data from the Aypols plant:
 
-- **135 machines/equipment** (from Machinery Biodata - APPL asset codes, departments, locations, manufacturers, installation years; includes all main equipment plus 3 forklifts, 4 dock levelers, and 6 kitchen machines)
+- **136 machines/equipment** (from Machinery Biodata - APPL asset codes, departments, locations, manufacturers, installation years; includes all main equipment plus 3 forklifts, 4 dock levelers, and 6 kitchen machines)
 - **141 spare parts** (from Store Stock - actual part names, HSN, units, purchase rates, opening quantities)
-- **744 preventive maintenance schedules** (from PM checklists - daily/weekly/monthly/quarterly/half-yearly/annual tasks per machine with inspection checklist items)
+- **756 preventive maintenance schedules** (from PM checklists - daily/weekly/monthly/quarterly/half-yearly/annual tasks per machine with inspection checklist items)
 - **14 maintenance tickets** (from actual daily report work)
 - **17 training programs** (from the annual Training Calendar)
+- **19 statutory approvals** (EHS Health & Legal Compliance - Hazardous Waste Authorization, Pollution Consent for Air/Water, Environmental Clearance, Fire Service & Explosive Licenses, Factory License, FSSAI, lease deeds and utility approvals from PCB, SIPCOT, TNEB, etc., with validity and renewal lead times)
 - **Safety checklists** based on the ISO 14001/45001 Work Permit
 
 > Note: Re-running `npm run db:seed` truncates and reloads all seed tables, so it is safe to re-run after schema changes.
