@@ -5,6 +5,8 @@ import { redirect, notFound } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { formatCurrency, formatDateTime, getStatusColor, getPriorityColor } from '@/lib/utils';
 import ConfirmForm from '@/components/ConfirmForm';
+import TicketPhotos from '@/components/TicketPhotos';
+import { deleteTicketPhotos } from '@/lib/ticketPhotos';
 import {
   Clock,
   Wrench,
@@ -403,6 +405,7 @@ export default async function TicketDetailPage({
       await tx.query(`DELETE FROM maintenance_tickets WHERE id = $1`, [ticketId]);
     });
 
+    await deleteTicketPhotos(ticket.photoPaths);
     redirect('/tickets');
   }
 
@@ -445,6 +448,9 @@ export default async function TicketDetailPage({
           <div className="card p-6">
             <h3 className="mb-3 text-lg font-semibold text-gray-900">Issue Description</h3>
             <p className="text-sm text-gray-700">{ticket.issueDescription}</p>
+            <div className="mt-4">
+              <TicketPhotos paths={ticket.photoPaths} />
+            </div>
             <div className="mt-4 grid grid-cols-2 gap-4 text-sm">
               <div>
                 <span className="font-medium text-gray-500">Category:</span>{' '}

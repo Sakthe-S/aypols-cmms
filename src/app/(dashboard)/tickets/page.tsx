@@ -3,10 +3,11 @@ import Link from 'next/link';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { getStatusColor, getPriorityColor, formatDate } from '@/lib/utils';
-import { Plus, Search, Filter } from 'lucide-react';
+import { Plus, Search, Filter, Camera } from 'lucide-react';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import ConfirmForm from '@/components/ConfirmForm';
+import { deleteTicketPhotos } from '@/lib/ticketPhotos';
 
 export const dynamic = 'force-dynamic';
 
@@ -60,8 +61,8 @@ export default async function TicketsPage({
     'use server';
     if (userRole !== 'SUPERVISOR' && userRole !== 'ADMIN') return;
     const ticketId = Number(formData.get('id'));
-    const statusRow = await queryOne<{ status: string }>(
-      `SELECT status FROM maintenance_tickets WHERE id = $1`,
+    const statusRow = await queryOne<{ status: string; photo_paths?: string[] }>(
+      `SELECT status, photo_paths FROM maintenance_tickets WHERE id = $1`,
       [ticketId]
     );
     if (!statusRow || statusRow.status !== 'open') return;
@@ -71,6 +72,7 @@ export default async function TicketsPage({
     await execute(`DELETE FROM stock_transactions WHERE reference_ticket_id = $1`, [ticketId]);
     await execute(`DELETE FROM notifications WHERE link_url = $1`, [`/tickets/${ticketId}`]);
     await execute(`DELETE FROM maintenance_tickets WHERE id = $1`, [ticketId]);
+    await deleteTicketPhotos(statusRow.photo_paths ?? []);
     revalidatePath('/tickets');
     redirect('/tickets');
   }
@@ -149,10 +151,28 @@ export default async function TicketsPage({
               {tickets.map((ticket) => (
                 <tr key={ticket.id} className="hover:bg-gray-50">
                   <td className="whitespace-nowrap px-6 py-4">
-                    <Link href={`/tickets/${ticket.id}`} className="font-semibold text-primary-600 hover:underline">
-                      {ticket.ticketNumber}
-                    </Link>
-                    <p className="mt-0.5 max-w-xs truncate text-xs text-gray-500">{ticket.issueDescription}</p>
+                    <div className="flex items-center gap-3">
+                      {ticket.photoPaths?.length > 0 && (
+                        <Link href={`/tickets/${ticket.id}`} className="shrink-0">
+                          <img
+                            src={ticket.photoPaths[0]}
+                            alt="ticket photo"
+                            className="h-10 w-10 rounded-md object-cover ring-1 ring-gray-200"
+                          />
+                        </Link>
+                      )}
+                      <div>
+                        <Link href={`/tickets/${ticket.id}`} className="font-semibold text-primary-600 hover:underline">
+                          {ticket.ticketNumber}
+                        </Link>
+                        <p className="mt-0.5 max-w-xs truncate text-xs text-gray-500">{ticket.issueDescription}</p>
+                        {ticket.photoPaths?.length > 1 && (
+                          <span className="mt-0.5 inline-flex items-center gap-1 text-[10px] text-gray-400">
+                            <Camera className="h-3 w-3" /> {ticket.photoPaths.length} photos
+                          </span>
+                        )}
+                      </div>
+                    </div>
                   </td>
                   <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-700">
                     {ticket.machine.machineName}
@@ -220,12 +240,23 @@ export default async function TicketsPage({
         {tickets.map((ticket) => (
           <div key={ticket.id} className="card p-4">
             <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <Link href={`/tickets/${ticket.id}`} className="font-semibold text-primary-600 hover:underline">
-                  {ticket.ticketNumber}
-                </Link>
-                <p className="mt-0.5 text-sm text-gray-700">{ticket.machine.machineName}</p>
-                <p className="mt-1 text-xs text-gray-500 line-clamp-2">{ticket.issueDescription}</p>
+              <div className="flex min-w-0 items-start gap-3">
+                {ticket.photoPaths?.length > 0 && (
+                  <Link href={`/tickets/${ticket.id}`} className="shrink-0">
+                    <img
+                      src={ticket.photoPaths[0]}
+                      alt="ticket photo"
+                      className="h-12 w-12 rounded-md object-cover ring-1 ring-gray-200"
+                    />
+                  </Link>
+                )}
+                <div className="min-w-0">
+                  <Link href={`/tickets/${ticket.id}`} className="font-semibold text-primary-600 hover:underline">
+                    {ticket.ticketNumber}
+                  </Link>
+                  <p className="mt-0.5 text-sm text-gray-700">{ticket.machine.machineName}</p>
+                  <p className="mt-1 text-xs text-gray-500 line-clamp-2">{ticket.issueDescription}</p>
+                </div>
               </div>
               <span className={`badge shrink-0 ${getStatusColor(ticket.status)}`}>
                 {ticket.status.replace('_', ' ')}

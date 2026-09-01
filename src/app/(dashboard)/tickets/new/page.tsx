@@ -3,6 +3,9 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
+import { Camera } from 'lucide-react';
+import TicketPhotoUpload from '@/components/TicketPhotoUpload';
+import { saveTicketPhotos } from '@/lib/ticketPhotos';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,6 +22,7 @@ export default async function NewTicketPage() {
     const category = formData.get('category') as string;
     const issueDescription = formData.get('issueDescription') as string;
     const expectedCompletionDate = formData.get('expectedCompletionDate') as string || null;
+    const photoFiles = (formData.getAll('photos') as File[]).filter((f) => f && f.size > 0);
     const userId = Number((session?.user as any)?.id);
     if (!userId) return;
 
@@ -36,6 +40,15 @@ export default async function NewTicketPage() {
     );
     const ticketId = insertRes?.id;
     if (!ticketId) return;
+
+    let photoPaths: string[] = [];
+    if (photoFiles.length > 0) {
+      photoPaths = await saveTicketPhotos(photoFiles, ticketId);
+      await execute(
+        `UPDATE maintenance_tickets SET photo_paths = $1 WHERE id = $2`,
+        [photoPaths, ticketId]
+      );
+    }
 
     const machineRow = await queryOne<{ machine_name: string }>(
       `SELECT machine_name FROM machines WHERE id = $1`,
@@ -65,7 +78,7 @@ export default async function NewTicketPage() {
         <p className="text-sm text-gray-500">Report a maintenance issue or breakdown</p>
       </div>
 
-      <form action={createTicket} className="card space-y-6 p-6">
+      <form action={createTicket} encType="multipart/form-data" className="card space-y-6 p-6">
         <div>
           <label className="label">Machine *</label>
           <select name="machineId" className="input-field" required>
@@ -121,6 +134,17 @@ export default async function NewTicketPage() {
             name="expectedCompletionDate"
             className="input-field"
           />
+        </div>
+
+        <div>
+          <label className="label">
+            <Camera className="mr-1 inline h-4 w-4 align-text-bottom" />
+            Attach Photos (optional)
+          </label>
+          <TicketPhotoUpload />
+          <p className="mt-1 text-xs text-gray-500">
+            Capture a photo of the issue from your camera, or upload photos from your gallery.
+          </p>
         </div>
 
         <div className="flex items-center gap-3">
