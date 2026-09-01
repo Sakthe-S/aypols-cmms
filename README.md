@@ -79,11 +79,26 @@ http://localhost:3000
 | Role | Email | Password |
 |------|-------|----------|
 | Admin | admin@aypols.com | password123 |
-| Supervisor | rajesh@aypols.com | password123 |
-| Technician | kumar@aypols.com | password123 |
+| Supervisor | venkatesh@aypols.com | password123 |
+| Technician | stephan@aypols.com | password123 |
+| Technician | nagaraj@aypols.com | password123 |
+| Technician | sathiesh@aypols.com | password123 |
 | Store Admin | murugan@aypols.com | password123 |
 | EHS Officer | priya@aypols.com | password123 |
 | Employee | arun@aypols.com | password123 |
+
+## Seeded Data (Actual Plant Data)
+
+The database is seeded with real data from the Aypols plant:
+
+- **115 machines/equipment** (from Machinery Biodata - APPL asset codes, departments, locations, manufacturers, installation years)
+- **141 spare parts** (from Store Stock - actual part names, HSN, units, purchase rates, opening quantities)
+- **744 preventive maintenance schedules** (from PM checklists - daily/weekly/monthly/quarterly/half-yearly/annual tasks per machine with inspection checklist items)
+- **14 maintenance tickets** (from actual daily report work)
+- **17 training programs** (from the annual Training Calendar)
+- **Safety checklists** based on the ISO 14001/45001 Work Permit
+
+> Note: Re-running `npm run db:seed` truncates and reloads all seed tables, so it is safe to re-run after schema changes.
 
 ## Project Structure
 
