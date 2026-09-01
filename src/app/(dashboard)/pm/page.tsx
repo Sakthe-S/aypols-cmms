@@ -1,12 +1,10 @@
 import { query, queryOne, execute, toCamel } from '@/lib/db';
-import { formatDate, getStatusColor } from '@/lib/utils';
-import { Calendar, Clock, CheckCircle2, Pencil } from 'lucide-react';
-import Link from 'next/link';
+import { formatDate } from '@/lib/utils';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import ConfirmForm from '@/components/ConfirmForm';
+import PmSchedulesView from '@/components/PmSchedulesView';
 
 export const dynamic = 'force-dynamic';
 
@@ -148,105 +146,15 @@ export default async function PmPage() {
       {/* PM Schedules */}
       <div>
         <h2 className="mb-4 text-lg font-semibold text-gray-900">PM Schedules</h2>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {schedules.map((pm) => {
-            const isOverdue = pm.nextDueDate && pm.nextDueDate < now;
-            const isDueSoon = pm.nextDueDate && !isOverdue && (pm.nextDueDate.getTime() - now.getTime()) < pm.leadDays * 86400000;
-            return (
-              <div key={pm.id} className={`card p-5 ${isOverdue ? 'border-red-300 bg-red-50' : isDueSoon ? 'border-yellow-300 bg-yellow-50' : ''}`}>
-                <div className="flex items-start justify-between">
-                  <div>
-                    <h3 className="font-semibold text-gray-900">{pm.taskName}</h3>
-                    <p className="text-sm text-gray-500">{pm.machine.machineName}</p>
-                  </div>
-                  <span className="badge bg-gray-100 text-gray-800">{pm.frequency}</span>
-                </div>
-                <p className="mt-2 text-sm text-gray-600">{pm.description}</p>
-                <div className="mt-3 flex items-center justify-between">
-                  <div className="text-sm">
-                    <span className="text-gray-500">Next Due: </span>
-                    <span className={`font-medium ${isOverdue ? 'text-red-600' : isDueSoon ? 'text-yellow-600' : 'text-gray-900'}`}>
-                      {pm.nextDueDate ? formatDate(pm.nextDueDate) : 'Not set'}
-                    </span>
-                  </div>
-                  <form action={markPmComplete.bind(null, pm.id)}>
-                    <button type="submit" className="btn-success text-xs px-3 py-1.5">
-                      <CheckCircle2 className="mr-1 h-3 w-3" /> Mark Done
-                    </button>
-                  </form>
-                </div>
-                {pm.logs[0] && (
-                  <p className="mt-2 text-xs text-gray-500">
-                    Last done: {formatDate(pm.logs[0].completedAt)} by {pm.logs[0].completedBy.name}
-                  </p>
-                )}
-                {canManage && (
-                  <div className="mt-3 border-t border-gray-100 pt-3">
-                    <details className="group">
-                      <summary className="flex cursor-pointer items-center gap-1 text-xs font-medium text-primary-600 hover:underline">
-                        <Pencil className="h-3 w-3" /> Edit Schedule
-                      </summary>
-                      <form action={updatePmSchedule} className="mt-3 space-y-3">
-                        <input type="hidden" name="id" value={pm.id} />
-                        <div>
-                          <label className="label">Task Name</label>
-                          <input type="text" name="taskName" className="input-field" defaultValue={pm.taskName} required />
-                        </div>
-                        <div className="grid grid-cols-2 gap-3">
-                          <div>
-                            <label className="label">Frequency</label>
-                            <select name="frequency" className="input-field" defaultValue={pm.frequency}>
-                              <option value="daily">Daily</option>
-                              <option value="weekly">Weekly</option>
-                              <option value="monthly">Monthly</option>
-                              <option value="quarterly">Quarterly</option>
-                              <option value="half_yearly">Half Yearly</option>
-                              <option value="yearly">Yearly</option>
-                            </select>
-                          </div>
-                          <div>
-                            <label className="label">Next Due Date</label>
-                            <input
-                              type="date"
-                              name="nextDueDate"
-                              className="input-field"
-                              defaultValue={pm.nextDueDate ? new Date(pm.nextDueDate).toISOString().slice(0, 10) : ''}
-                            />
-                          </div>
-                        </div>
-                        <div>
-                          <label className="label">Description</label>
-                          <textarea name="description" className="input-field" rows={2} defaultValue={pm.description} />
-                        </div>
-                        <div>
-                          <label className="label">Checklist Items (one per line)</label>
-                          <textarea
-                            name="checklistItems"
-                            className="input-field"
-                            rows={2}
-                            defaultValue={pm.checklistItems ? JSON.parse(pm.checklistItems).join('\n') : ''}
-                          />
-                        </div>
-                        <button type="submit" className="btn-primary w-full text-xs">Save Changes</button>
-                      </form>
-                    </details>
-                    {userRole === 'ADMIN' && (
-                      <ConfirmForm action={deletePmSchedule} message="Delete this PM schedule?" className="mt-2">
-                        <input type="hidden" name="id" value={pm.id} />
-                        <button type="submit" className="btn-danger w-full text-xs">
-                          Delete Schedule
-                        </button>
-                      </ConfirmForm>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-          {schedules.length === 0 && (
-            <p className="col-span-3 py-8 text-center text-gray-500">No PM schedules configured</p>
-          )}
-        </div>
+        <PmSchedulesView
+          schedules={schedules}
+          canManage={canManage}
+          isAdmin={userRole === 'ADMIN'}
+          now={now}
+          onMarkDone={markPmComplete}
+          onUpdate={updatePmSchedule}
+          onDelete={deletePmSchedule}
+        />
       </div>
 
       {/* AMC Records */}

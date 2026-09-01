@@ -1,9 +1,24 @@
 import { query, toCamel } from '@/lib/db';
 import Link from 'next/link';
-import { formatCurrency, getStatusColor } from '@/lib/utils';
-import { Plus, Wrench } from 'lucide-react';
+import { Plus } from 'lucide-react';
+import MachinesView from '@/components/MachinesView';
 
 export const dynamic = 'force-dynamic';
+
+type MachineRow = {
+  id: number;
+  machineName: string;
+  serialNumber: string | null;
+  department: string | null;
+  location: string | null;
+  currentStatus: string;
+  lifetimeMaintenanceCost: number;
+  ticketCount: number;
+};
+
+type Machine = Omit<MachineRow, 'ticketCount'> & {
+  _count: { tickets: number };
+};
 
 export default async function MachinesPage() {
   const rows = await query<Record<string, unknown>>(
@@ -13,10 +28,16 @@ export default async function MachinesPage() {
      ORDER BY m.machine_name ASC`
   );
 
-  const machines = rows.map(row => {
-    const r = toCamel(row);
+  const machines: Machine[] = rows.map(row => {
+    const r = toCamel(row) as unknown as MachineRow;
     return {
-      ...r,
+      id: r.id,
+      machineName: r.machineName,
+      serialNumber: r.serialNumber,
+      department: r.department,
+      location: r.location,
+      currentStatus: r.currentStatus,
+      lifetimeMaintenanceCost: Number(r.lifetimeMaintenanceCost || 0),
       _count: { tickets: Number(r.ticketCount || 0) },
     };
   });
@@ -26,7 +47,6 @@ export default async function MachinesPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Machines / Assets</h1>
-          <p className="text-sm text-gray-500">{machines.length} registered machines</p>
         </div>
         <Link href="/machines/new" className="btn-primary">
           <Plus className="mr-2 h-4 w-4" />
@@ -34,51 +54,7 @@ export default async function MachinesPage() {
         </Link>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {machines.map((machine) => (
-          <div key={machine.id} className="card p-5 hover:shadow-md transition-shadow">
-            <div className="flex items-start justify-between">
-              <div className="flex items-center gap-3">
-                <div className="rounded-lg bg-primary-50 p-2">
-                  <Wrench className="h-5 w-5 text-primary-600" />
-                </div>
-                <div>
-                  <Link href={`/machines/${machine.id}`} className="font-semibold text-gray-900 hover:text-primary-600">
-                    {machine.machineName}
-                  </Link>
-                  <p className="text-xs text-gray-500">{machine.serialNumber}</p>
-                </div>
-              </div>
-              <span className={`badge ${getStatusColor(machine.currentStatus)}`}>
-                {machine.currentStatus}
-              </span>
-            </div>
-            <div className="mt-4 space-y-2 text-sm text-gray-600">
-              <div className="flex justify-between">
-                <span>Department</span>
-                <span className="font-medium">{machine.department || '-'}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Location</span>
-                <span className="font-medium">{machine.location || '-'}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Total Tickets</span>
-                <span className="font-medium">{machine._count.tickets}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Lifetime Cost</span>
-                <span className="font-bold text-primary-600">
-                  {formatCurrency(machine.lifetimeMaintenanceCost)}
-                </span>
-              </div>
-            </div>
-            <Link href={`/machines/${machine.id}`} className="mt-3 inline-block text-xs font-medium text-primary-600 hover:underline">
-              View Details →
-            </Link>
-          </div>
-        ))}
-      </div>
+      <MachinesView machines={machines} />
     </div>
   );
 }
