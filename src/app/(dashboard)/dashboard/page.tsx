@@ -287,16 +287,16 @@ export default async function DashboardPage() {
       {/* Stats Grid */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {stats.map((stat) => (
-          <Link key={stat.label} href={stat.href} className="card p-4 hover:shadow-md transition-shadow">
-            <div className="flex items-center justify-between">
-              <div>
+          <Link key={stat.label} href={stat.href} className="card block p-4 hover:shadow-md transition-shadow">
+            <span className="flex items-center justify-between">
+              <span>
                 <p className="text-sm font-medium text-gray-500">{stat.label}</p>
                 <p className="mt-1 text-3xl font-bold text-gray-900">{stat.value}</p>
-              </div>
-              <div className={`rounded-xl ${stat.color} p-3 text-white`}>
+              </span>
+              <span className={`rounded-xl ${stat.color} p-3 text-white`}>
                 <stat.icon className="h-6 w-6" />
-              </div>
-            </div>
+              </span>
+            </span>
           </Link>
         ))}
       </div>
@@ -416,19 +416,19 @@ export default async function DashboardPage() {
                 href={`/tickets/${ticket.id}`}
                 className="block rounded-lg border border-gray-100 p-3 hover:shadow-md transition-shadow"
               >
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
+                <span className="flex items-center justify-between gap-3">
+                  <span className="min-w-0">
                     <p className="font-medium text-primary-600">{ticket.ticketNumber}</p>
                     <p className="truncate text-sm text-gray-700">{ticket.machine.machineName}</p>
-                  </div>
+                  </span>
                   <span className={`badge shrink-0 ${getStatusColor(ticket.status)}`}>
                     {ticket.status.replace('_', ' ')}
                   </span>
-                </div>
-                <div className="mt-1 flex items-center gap-2">
+                </span>
+                <span className="mt-1 flex items-center gap-2">
                   <span className={`badge ${getPriorityColor(ticket.priority)}`}>{ticket.priority}</span>
                   <span className="text-xs text-gray-500">{ticket.category}</span>
-                </div>
+                </span>
               </Link>
             ))}
             {recentTickets.length === 0 && (

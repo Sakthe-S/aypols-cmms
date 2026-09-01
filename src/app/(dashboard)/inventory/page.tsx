@@ -227,9 +227,8 @@ export default async function InventoryPage({
         {parts.map((part) => {
           const isLow = part.currentQty <= part.minThreshold;
           return (
-            <Link
+            <div
               key={part.id}
-              href={`/inventory/${part.id}`}
               className={`card block p-4 hover:shadow-md transition-shadow ${isLow ? 'border-red-200 bg-red-50/30' : ''}`}
             >
               <div className="flex items-start justify-between gap-3">
@@ -269,7 +268,7 @@ export default async function InventoryPage({
                   </button>
                 </ConfirmForm>
               )}
-            </Link>
+            </div>
           );
         })}
         {parts.length === 0 && (

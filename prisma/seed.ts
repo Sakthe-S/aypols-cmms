@@ -342,6 +342,7 @@ async function main() {
       { ticket_number: 'TKT-2026-013', machine_id: machineIds[12], reported_by_id: empId, priority: 'medium', category: 'mechanical', issue_description: "2 ton HSD load cell erection pending", status: 'open' },
       { ticket_number: 'TKT-2026-014', machine_id: machineIds[13], reported_by_id: empId, priority: 'low', category: 'civil', issue_description: "Safety boards to be installed", status: 'open' },
     ]);
+    await client.query(`SELECT setval('maintenance_ticket_num_seq', 14);`);
 
     await insertMany(client, 'ticket_spare_parts', ['ticket_id','part_id','qty','unit_price','total_cost','user_id'], [
       { ticket_id: ticketIds[0], part_id: partIds[0], qty: 1, unit_price: 1050.0, total_cost: 1050.0, user_id: tech1Id },
