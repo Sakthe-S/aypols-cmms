@@ -91,7 +91,7 @@ http://localhost:3000
 
 The database is seeded with real data from the Aypols plant:
 
-- **115 machines/equipment** (from Machinery Biodata - APPL asset codes, departments, locations, manufacturers, installation years)
+- **122 machines/equipment** (from Machinery Biodata - APPL asset codes, departments, locations, manufacturers, installation years)
 - **141 spare parts** (from Store Stock - actual part names, HSN, units, purchase rates, opening quantities)
 - **744 preventive maintenance schedules** (from PM checklists - daily/weekly/monthly/quarterly/half-yearly/annual tasks per machine with inspection checklist items)
 - **14 maintenance tickets** (from actual daily report work)
