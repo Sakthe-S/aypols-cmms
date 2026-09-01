@@ -71,3 +71,34 @@ export function generateTicketNumber(sequence: number): string {
   const year = new Date().getFullYear();
   return `TKT-${year}-${String(sequence).padStart(3, '0')}`;
 }
+
+const FLUID_KEYWORDS = [
+  'oil', 'grease', 'lubricant', 'solvent', 'acetone', 'thinner', 'resin',
+  'coolant', 'cutting fluid', 'hydraulic fluid', 'transformer oil', 'gear oil',
+  'lpg', 'diesel', 'fuel', 'petrol', 'kerosene', 'chemical', 'acid',
+  'fevicol', 'adhesive', 'glue', 'epsom', 'lactose', 'syrup',
+];
+
+// Countable units -> always physical (round figures), regardless of the name.
+const COUNTABLE_UNITS = [
+  'nos', 'no', 'pcs', 'pc', 'set', 'sets', 'pair', 'pairs', 'packet',
+  'pack', 'packets', 'roll', 'rolls', 'piece', 'pieces', 'each',
+  'box', 'boxes', 'bottle', 'carton', 'unit', 'units', 'mtr', 'mtrs', 'mt', 'metre',
+];
+
+export function isFluidPart(part: { partName?: string; name?: string; unit?: string }): boolean {
+  const name = `${part.partName || part.name || ''}`.toLowerCase();
+  const unit = (part.unit || '').toLowerCase().trim();
+  const unitBase = unit.split(' ')[0];
+  if (COUNTABLE_UNITS.includes(unitBase)) return false;
+  return FLUID_KEYWORDS.some((k) => name.includes(k));
+}
+
+export function formatQty(
+  part: { partName?: string; name?: string; unit?: string },
+  value: number | null | undefined
+): string {
+  const v = Number(value ?? 0);
+  if (isFluidPart(part)) return v.toFixed(2);
+  return Math.round(v).toString();
+}

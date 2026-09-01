@@ -2,7 +2,7 @@ import { query, queryOne, execute, toCamel } from '@/lib/db';
 import Link from 'next/link';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, formatQty } from '@/lib/utils';
 import { Plus, Package, AlertTriangle, Search } from 'lucide-react';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
@@ -179,7 +179,7 @@ export default async function InventoryPage({
                     </td>
                     <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-700">{part.category || '-'}</td>
                     <td className="whitespace-nowrap px-6 py-4 text-sm font-semibold">
-                      {part.currentQty} {part.unit}
+                      {formatQty(part, part.currentQty)} {part.unit}
                     </td>
                     <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-700">{part.minThreshold}</td>
                     <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-700">
@@ -248,7 +248,7 @@ export default async function InventoryPage({
               <div className="mt-3 grid grid-cols-3 gap-2 border-t border-gray-100 pt-3 text-center">
                 <div>
                   <p className="text-xs text-gray-500">Qty</p>
-                  <p className="text-sm font-semibold">{part.currentQty} {part.unit}</p>
+                  <p className="text-sm font-semibold">{formatQty(part, part.currentQty)} {part.unit}</p>
                 </div>
                 <div>
                   <p className="text-xs text-gray-500">Min</p>

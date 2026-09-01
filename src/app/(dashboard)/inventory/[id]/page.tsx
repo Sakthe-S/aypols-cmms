@@ -2,7 +2,7 @@ import { query, queryOne, execute, withTransaction, toCamel } from '@/lib/db';
 import { notFound } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
-import { formatCurrency, formatDateTime } from '@/lib/utils';
+import { formatCurrency, formatDateTime, formatQty, isFluidPart } from '@/lib/utils';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { AlertTriangle } from 'lucide-react';
@@ -62,7 +62,7 @@ export default async function PartDetailPage({ params }: { params: { id: string 
 
   async function stockIn(formData: FormData) {
     'use server';
-    const qty = parseFloat(formData.get('quantity') as string);
+    const qty = isFluidPart(part) ? parseFloat(formData.get('quantity') as string) : Math.round(parseFloat(formData.get('quantity') as string) || 0);
     const reason = formData.get('reason') as string;
     await withTransaction(async (tx) => {
       await tx.query(
@@ -81,7 +81,7 @@ export default async function PartDetailPage({ params }: { params: { id: string 
 
   async function stockOut(formData: FormData) {
     'use server';
-    const qty = parseFloat(formData.get('quantity') as string);
+    const qty = isFluidPart(part) ? parseFloat(formData.get('quantity') as string) : Math.round(parseFloat(formData.get('quantity') as string) || 0);
     const reason = formData.get('reason') as string;
 
     const currentPart = await queryOne<any>(
@@ -108,7 +108,7 @@ export default async function PartDetailPage({ params }: { params: { id: string 
 
   async function stockTransfer(formData: FormData) {
     'use server';
-    const qty = parseFloat(formData.get('quantity') as string);
+    const qty = isFluidPart(part) ? parseFloat(formData.get('quantity') as string) : Math.round(parseFloat(formData.get('quantity') as string) || 0);
     const toLocation = formData.get('toLocation') as string;
     const reason = formData.get('reason') as string;
 
@@ -201,9 +201,9 @@ export default async function PartDetailPage({ params }: { params: { id: string 
           <div className={`card p-6 ${isLow ? 'border-red-300 bg-red-50' : ''}`}>
             <h3 className="text-lg font-semibold text-gray-900">Current Stock</h3>
             <p className={`mt-2 text-4xl font-bold ${isLow ? 'text-red-600' : 'text-gray-900'}`}>
-              {part.currentQty} <span className="text-lg">{part.unit}</span>
+              {formatQty(part, part.currentQty)} <span className="text-lg">{part.unit}</span>
             </p>
-            <p className="mt-1 text-sm text-gray-500">Min: {part.minThreshold} &middot; Reorder: {part.reorderQty}</p>
+            <p className="mt-1 text-sm text-gray-500">Min: {formatQty(part, part.minThreshold)} &middot; Reorder: {formatQty(part, part.reorderQty)}</p>
             <p className="mt-1 text-sm text-gray-500">Unit Price: {formatCurrency(part.purchaseRate)}</p>
           </div>
 
@@ -213,7 +213,7 @@ export default async function PartDetailPage({ params }: { params: { id: string 
             <form action={stockIn} className="space-y-3">
               <div>
                 <label className="label">Quantity *</label>
-                <input type="number" name="quantity" className="input-field" step="0.01" required />
+                <input type="number" name="quantity" className="input-field" step={isFluidPart(part) ? '0.01' : '1'} required />
               </div>
               <div>
                 <label className="label">Reason</label>
@@ -229,7 +229,7 @@ export default async function PartDetailPage({ params }: { params: { id: string 
             <form action={stockOut} className="space-y-3">
               <div>
                 <label className="label">Quantity *</label>
-                <input type="number" name="quantity" className="input-field" step="0.01" max={part.currentQty} required />
+                <input type="number" name="quantity" className="input-field" step={isFluidPart(part) ? '0.01' : '1'} max={part.currentQty} required />
               </div>
               <div>
                 <label className="label">Reason</label>
@@ -245,7 +245,7 @@ export default async function PartDetailPage({ params }: { params: { id: string 
             <form action={stockTransfer} className="space-y-3">
               <div>
                 <label className="label">Quantity *</label>
-                <input type="number" name="quantity" className="input-field" step="0.01" max={part.currentQty} required />
+                <input type="number" name="quantity" className="input-field" step={isFluidPart(part) ? '0.01' : '1'} max={part.currentQty} required />
               </div>
               <div>
                 <label className="label">To Location *</label>

@@ -1,5 +1,5 @@
 import { query, toCamel } from '@/lib/db';
-import { formatDateTime } from '@/lib/utils';
+import { formatDateTime, formatQty } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
 
@@ -59,7 +59,7 @@ export default async function TransactionsPage() {
                     </span>
                   </td>
                   <td className="px-6 py-3 font-semibold">
-                    {tx.transactionType === 'stock_in' ? '+' : tx.transactionType === 'stock_out' ? '-' : ''}{tx.quantity} {tx.part.unit}
+                    {tx.transactionType === 'stock_in' ? '+' : tx.transactionType === 'stock_out' ? '-' : ''}{formatQty(tx.part, tx.quantity)} {tx.part.unit}
                   </td>
                   <td className="px-6 py-3 text-gray-700">{tx.user.name}</td>
                   <td className="px-6 py-3 text-gray-500">{tx.reason || '-'}</td>
@@ -98,7 +98,7 @@ export default async function TransactionsPage() {
             </div>
             <div className="mt-2 flex items-center justify-between">
               <span className="text-sm font-semibold">
-                {tx.transactionType === 'stock_in' ? '+' : tx.transactionType === 'stock_out' ? '-' : ''}{tx.quantity} {tx.part.unit}
+                {tx.transactionType === 'stock_in' ? '+' : tx.transactionType === 'stock_out' ? '-' : ''}{formatQty(tx.part, tx.quantity)} {tx.part.unit}
               </span>
               <span className="text-xs text-gray-500">{formatDateTime(tx.createdAt)}</span>
             </div>
