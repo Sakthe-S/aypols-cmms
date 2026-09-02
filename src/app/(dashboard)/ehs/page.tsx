@@ -1,4 +1,4 @@
-import { query, execute, toCamel } from '@/lib/db';
+import { query, queryOne, execute, toCamel } from '@/lib/db';
 import { formatDate } from '@/lib/utils';
 import { Shield, BookOpen, Heart, FileCheck, History } from 'lucide-react';
 import { revalidatePath } from 'next/cache';
@@ -156,6 +156,36 @@ export default async function EhsPage() {
     const id = Number(formData.get('id'));
     await execute(`DELETE FROM training_completions WHERE training_id = $1`, [id]);
     await execute(`DELETE FROM training_records WHERE id = $1`, [id]);
+    revalidatePath('/ehs');
+    redirect('/ehs');
+  }
+
+  // Employees self-report training completion; EHS Officer/Admin may record on their behalf.
+  async function reportTrainingCompletion(formData: FormData) {
+    'use server';
+    const trainingId = Number(formData.get('trainingId'));
+    const training = await queryOne<Record<string, unknown>>(
+      `SELECT assigned_to_ids FROM training_records WHERE id = $1 AND is_active = true`,
+      [trainingId]
+    );
+    if (!training) return;
+    const assignedIds = JSON.parse((training['assigned_to_ids'] as string) || '[]') as number[];
+    const eligible =
+      userRole === 'EHS_OFFICER' || userRole === 'ADMIN' || userRole === 'SUPERVISOR' ||
+      assignedIds.includes(userId);
+    if (!eligible) return;
+
+    const existing = await queryOne<{ id: number }>(
+      `SELECT id FROM training_completions WHERE training_id = $1 AND user_id = $2`,
+      [trainingId, userId]
+    );
+    if (existing) return;
+
+    await execute(
+      `INSERT INTO training_completions (training_id, user_id, status, completed_at)
+       VALUES ($1, $2, 'completed', NOW())`,
+      [trainingId, userId]
+    );
     revalidatePath('/ehs');
     redirect('/ehs');
   }
@@ -374,6 +404,7 @@ export default async function EhsPage() {
                   const verifiedCount = tr.completions.filter((c: any) => c.verifiedAt).length;
                   const pendingCompletion = tr.completions.find((c: any) => !c.verifiedAt);
                   const isOverdue = tr.nextDueDate && tr.nextDueDate < now;
+                  const canReport = !tr.completions.some((c: any) => c.userId === userId) && (assigned.includes(userId) || userRole === 'EHS_OFFICER' || userRole === 'ADMIN' || userRole === 'SUPERVISOR');
                   return (
                     <tr key={tr.id} className="hover:bg-gray-50">
                       <td className="px-6 py-3 font-medium">{tr.trainingName}</td>
@@ -390,13 +421,27 @@ export default async function EhsPage() {
                       <td className="px-6 py-3">{completedCount}/{assigned.length}</td>
                       <td className="px-6 py-3">{verifiedCount}/{assigned.length}</td>
                       <td className="px-6 py-3">
-                        {isOverdue ? (
-                          <span className="badge bg-red-100 text-red-800">Overdue</span>
-                        ) : completedCount >= assigned.length ? (
-                          <span className="badge bg-green-100 text-green-800">Complete</span>
-                        ) : (
-                          <span className="badge bg-yellow-100 text-yellow-800">Pending</span>
-                        )}
+                        <div className="flex items-center gap-2">
+                          {isOverdue ? (
+                            <span className="badge bg-red-100 text-red-800">Overdue</span>
+                          ) : completedCount >= assigned.length ? (
+                            <span className="badge bg-green-100 text-green-800">Complete</span>
+                          ) : (
+                            <span className="badge bg-yellow-100 text-yellow-800">Pending</span>
+                          )}
+                          {canReport && (
+                            <form action={reportTrainingCompletion}>
+                              <input type="hidden" name="trainingId" value={tr.id} />
+                              <button
+                                type="submit"
+                                className="btn-secondary px-2 py-1 text-xs"
+                                title="Report that I completed this training"
+                              >
+                                Mark Complete
+                              </button>
+                            </form>
+                          )}
+                        </div>
                       </td>
                       {canManage && (
                         <td className="px-6 py-3">
@@ -458,6 +503,7 @@ export default async function EhsPage() {
             const verifiedCount = tr.completions.filter((c: any) => c.verifiedAt).length;
             const pendingCompletion = tr.completions.find((c: any) => !c.verifiedAt);
             const isOverdue = tr.nextDueDate && tr.nextDueDate < now;
+            const canReport = !tr.completions.some((c: any) => c.userId === userId) && (assigned.includes(userId) || userRole === 'EHS_OFFICER' || userRole === 'ADMIN' || userRole === 'SUPERVISOR');
             return (
               <div key={tr.id} className="card p-4">
                 <div className="flex items-start justify-between gap-3">
@@ -482,6 +528,12 @@ export default async function EhsPage() {
                 <div className="mt-2 border-t border-gray-100 pt-2 text-xs text-gray-500">
                   {completedCount}/{assigned.length} employees completed &middot; EHS Verified: {verifiedCount}
                 </div>
+                {canReport && (
+                  <form action={reportTrainingCompletion} className="mt-2">
+                    <input type="hidden" name="trainingId" value={tr.id} />
+                    <button type="submit" className="btn-secondary w-full text-xs">Mark Training Complete</button>
+                  </form>
+                )}
                 {pendingCompletion && (userRole === 'EHS_OFFICER' || userRole === 'ADMIN') && (
                   <form action={verifyTrainingCompletion} className="mt-2">
                     <input type="hidden" name="completionId" value={pendingCompletion.id} />

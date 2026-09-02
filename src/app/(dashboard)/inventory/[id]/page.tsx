@@ -62,6 +62,7 @@ export default async function PartDetailPage({ params }: { params: { id: string 
 
   async function stockIn(formData: FormData) {
     'use server';
+    if (userRole !== 'STORE_ADMIN' && userRole !== 'ADMIN') return;
     const qty = isFluidPart(part) ? parseFloat(formData.get('quantity') as string) : Math.round(parseFloat(formData.get('quantity') as string) || 0);
     const reason = formData.get('reason') as string;
     await withTransaction(async (tx) => {
@@ -81,6 +82,7 @@ export default async function PartDetailPage({ params }: { params: { id: string 
 
   async function stockOut(formData: FormData) {
     'use server';
+    if (userRole !== 'STORE_ADMIN' && userRole !== 'ADMIN') return;
     const qty = isFluidPart(part) ? parseFloat(formData.get('quantity') as string) : Math.round(parseFloat(formData.get('quantity') as string) || 0);
     const reason = formData.get('reason') as string;
 
@@ -108,6 +110,7 @@ export default async function PartDetailPage({ params }: { params: { id: string 
 
   async function stockTransfer(formData: FormData) {
     'use server';
+    if (userRole !== 'STORE_ADMIN' && userRole !== 'ADMIN') return;
     const qty = isFluidPart(part) ? parseFloat(formData.get('quantity') as string) : Math.round(parseFloat(formData.get('quantity') as string) || 0);
     const toLocation = formData.get('toLocation') as string;
     const reason = formData.get('reason') as string;
