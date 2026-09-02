@@ -37,13 +37,16 @@ function buildTicket(row: TicketRow) {
 
 export default async function TicketDetailPage({
   params,
+  searchParams,
 }: {
   params: { id: string };
+  searchParams?: { partError?: string };
 }) {
   const session = await getServerSession(authOptions);
   const userRole = (session?.user as any)?.role;
   const userId = Number((session?.user as any)?.id);
   const ticketId = Number(params.id);
+  const partError = searchParams?.partError ?? null;
 
   const ticketRow = await queryOne<TicketRow>(
     `SELECT t.*,
@@ -327,38 +330,45 @@ export default async function TicketDetailPage({
     if (!['in_progress', 'allocated'].includes(ticket.status)) return;
     const partId = Number(formData.get('partId'));
     const qty = parseFloat(formData.get('qty') as string);
+    if (!partId || !(qty > 0)) return;
 
-    await withTransaction(async (tx) => {
-      const partRes = await tx.query<Record<string, unknown>>(
-        `SELECT * FROM spare_parts WHERE id = $1`,
-        [partId]
-      );
-      const part = partRes.rows[0] as any;
-      if (!part) throw new Error('Part not found');
-      if (part.current_qty < qty) throw new Error(`Insufficient stock. Available: ${part.current_qty} ${part.unit}`);
+    try {
+      await withTransaction(async (tx) => {
+        const partRes = await tx.query<Record<string, unknown>>(
+          `SELECT * FROM spare_parts WHERE id = $1`,
+          [partId]
+        );
+        const part = partRes.rows[0] as any;
+        if (!part) throw new Error('Part not found');
+        if (part.current_qty < qty) {
+          throw new Error(`Insufficient stock. Available: ${part.current_qty} ${part.unit}`);
+        }
 
-      const totalCost = qty * Number(part.purchase_rate);
+        const totalCost = qty * Number(part.purchase_rate);
 
-      await tx.query(
-        `INSERT INTO ticket_spare_parts (ticket_id, part_id, qty, unit_price, total_cost, user_id)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [ticketId, partId, qty, part.purchase_rate, totalCost, userId]
-      );
-      await tx.query(
-        `UPDATE spare_parts SET current_qty = current_qty - $1 WHERE id = $2`,
-        [qty, partId]
-      );
-      await tx.query(
-        `INSERT INTO stock_transactions (part_id, transaction_type, quantity, reason, reference_ticket_id, user_id)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [partId, 'stock_out', qty, `Issued for ticket ${ticket.ticketNumber}`, ticketId, userId]
-      );
+        await tx.query(
+          `INSERT INTO ticket_spare_parts (ticket_id, part_id, qty, unit_price, total_cost, user_id)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [ticketId, partId, qty, part.purchase_rate, totalCost, userId]
+        );
+        await tx.query(
+          `UPDATE spare_parts SET current_qty = current_qty - $1 WHERE id = $2`,
+          [qty, partId]
+        );
+        await tx.query(
+          `INSERT INTO stock_transactions (part_id, transaction_type, quantity, reason, reference_ticket_id, user_id)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [partId, 'stock_out', qty, `Issued for ticket ${ticket.ticketNumber}`, ticketId, userId]
+        );
 
-      await tx.query(
-        `INSERT INTO ticket_progress_logs (ticket_id, user_id, notes, log_type) VALUES ($1, $2, $3, $4)`,
-        [ticketId, userId, `Added ${qty} ${part.unit} of ${part.part_name} (₹${totalCost.toLocaleString('en-IN')})`, 'parts_request']
-      );
-    });
+        await tx.query(
+          `INSERT INTO ticket_progress_logs (ticket_id, user_id, notes, log_type) VALUES ($1, $2, $3, $4)`,
+          [ticketId, userId, `Added ${qty} ${part.unit} of ${part.part_name} (₹${totalCost.toLocaleString('en-IN')})`, 'parts_request']
+        );
+      });
+    } catch (e) {
+      redirect(`/tickets/${ticketId}?partError=${encodeURIComponent((e as Error).message)}`);
+    }
 
     revalidatePath(`/tickets/${ticketId}`);
     redirect(`/tickets/${ticketId}`);
@@ -617,6 +627,12 @@ export default async function TicketDetailPage({
 
           {/* Parts Used */}
           <div className="card p-6">
+            {partError && (
+              <div className="mb-4 flex items-start gap-2 rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-700">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>{partError}</span>
+              </div>
+            )}
             <h3 className="mb-3 text-lg font-semibold text-gray-900">
               <Package className="inline h-5 w-5 mr-1" /> Parts Used
             </h3>
