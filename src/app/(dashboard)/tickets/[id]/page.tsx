@@ -115,6 +115,22 @@ export default async function TicketDetailPage({
       )
     : null;
 
+  // Null-safe snapshot for server-action argument binding (avoids eager
+  // evaluation of applicableChecklist.checklist_items when the checklist
+  // or its items are missing, which otherwise crashes page render).
+  const checklistItems: string[] = applicableChecklist
+    ? (() => {
+        try {
+          const parsed = JSON.parse(applicableChecklist.checklist_items as string);
+          return Array.isArray(parsed) ? parsed : [];
+        } catch {
+          return [];
+        }
+      })()
+    : [];
+  const hasChecklistItems = checklistItems.length > 0;
+  const applicableChecklistId = applicableChecklist ? applicableChecklist.id : null;
+
   const hasApprovedChecklist = applicableChecklist
     ? await queryOne<{ id: number }>(
         `SELECT id FROM safety_checklist_completions
@@ -192,7 +208,7 @@ export default async function TicketDetailPage({
     if (!isAssignedTechnician) return;
     if (ticket.status !== 'allocated') return;
 
-    const needChecklist = applicableChecklist?.checklist_items != null;
+    const needChecklist = hasChecklistItems;
     if (needChecklist) {
       const approval = await queryOne<{ id: number }>(
         `SELECT id FROM safety_checklist_completions
@@ -220,8 +236,8 @@ export default async function TicketDetailPage({
   async function completeSafetyChecklist(formData: FormData) {
     'use server';
     if (!isAssignedTechnician) return;
-    if (!applicableChecklist?.checklist_items) return;
-    const items = JSON.parse(applicableChecklist.checklist_items as string);
+    if (!hasChecklistItems) return;
+    const items = checklistItems;
     const responses = items.map((item: string, i: number) => ({
       item,
       checked: formData.get(`check_${i}`) === 'on',
@@ -233,7 +249,7 @@ export default async function TicketDetailPage({
       await tx.query(
         `INSERT INTO safety_checklist_completions (checklist_id, ticket_id, completed_by_id, is_approved, responses)
          VALUES ($1, $2, $3, $4, $5)`,
-        [applicableChecklist.id, ticketId, userId, false, JSON.stringify(responses)]
+        [applicableChecklistId, ticketId, userId, false, JSON.stringify(responses)]
       );
 
       await tx.query(
@@ -277,7 +293,7 @@ export default async function TicketDetailPage({
   async function overrideSafetyChecklist(formData: FormData) {
     'use server';
     if (!isSupervisorUser && !isAdminUser) return;
-    if (!applicableChecklist) return;
+    if (!applicableChecklistId) return;
     const reason = formData.get('reason') as string;
 
     await withTransaction(async (tx) => {
@@ -285,7 +301,7 @@ export default async function TicketDetailPage({
         `INSERT INTO safety_checklist_completions (checklist_id, ticket_id, completed_by_id, override_by_id, override_reason, is_approved, responses)
          VALUES ($1, $2, $3, $4, $5, $6, $7)`,
         [
-          applicableChecklist.id,
+          applicableChecklistId,
           ticketId,
           userId,
           userId,
@@ -780,7 +796,7 @@ export default async function TicketDetailPage({
             {/* Start Work (Assigned Technician only) - gated by safety checklist */}
             {ticket.status === 'allocated' && ticket.assignedToId === userId && (
               <>
-                {applicableChecklist?.checklist_items && !hasApprovedChecklist ? (
+                {hasChecklistItems && !hasApprovedChecklist ? (
                   <div className="border border-yellow-300 rounded-lg p-4 bg-yellow-50">
                     <h4 className="font-semibold text-yellow-800 flex items-center gap-2">
                       <AlertTriangle className="h-4 w-4" /> Safety Checklist Required
@@ -804,7 +820,7 @@ export default async function TicketDetailPage({
                           Complete the safety checklist before starting work: <strong>{applicableChecklist.name}</strong>
                         </p>
                         <form action={completeSafetyChecklist} className="mt-3 space-y-2">
-                          {JSON.parse(applicableChecklist.checklist_items).map((item: string, i: number) => (
+                          {checklistItems.map((item: string, i: number) => (
                             <label key={i} className="flex items-start gap-2 text-sm">
                               <input type="checkbox" name={`check_${i}`} className="mt-0.5 h-4 w-4 rounded border-gray-300" />
                               <span className="text-gray-700">{item}</span>
