@@ -115,7 +115,7 @@ export default async function EhsPage() {
     await execute(
       `INSERT INTO safety_checklists (name, job_type, checklist_items, is_active)
        VALUES ($1, $2, $3, true)`,
-      [name, jobType || null, JSON.stringify(itemList)]
+      [name, jobType || 'general', JSON.stringify(itemList)]
     );
     revalidatePath('/ehs');
     redirect('/ehs');
@@ -144,7 +144,7 @@ export default async function EhsPage() {
     await execute(
       `INSERT INTO training_records (training_name, training_type, description, frequency, next_due_date, assigned_to_ids, is_active)
        VALUES ($1, $2, $3, $4, $5, $6, true)`,
-      [trainingName, trainingType || 'safety', description || null, frequency || null, nextDueDate || null, JSON.stringify(ids)]
+      [trainingName, trainingType || 'safety', description || null, frequency || 'once', nextDueDate || null, JSON.stringify(ids)]
     );
     revalidatePath('/ehs');
     redirect('/ehs');
@@ -216,7 +216,7 @@ export default async function EhsPage() {
     await execute(
       `INSERT INTO health_compliance_records (record_name, record_type, frequency, next_due_date, is_active)
        VALUES ($1, $2, $3, $4, true)`,
-      [recordName, recordType || 'health', frequency || null, nextDueDate || null]
+      [recordName, recordType || 'health', frequency || 'once', nextDueDate || null]
     );
     revalidatePath('/ehs');
     redirect('/ehs');

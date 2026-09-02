@@ -119,6 +119,7 @@ export default async function SettingsPage({
     if (!userId) return;
     const type = formData.get('type') as string;
     const channel = formData.get('channel') as string;
+    if (!['in_app', 'whatsapp'].includes(channel)) return;
     await execute(
       `INSERT INTO notification_preferences (user_id, type, channel)
        VALUES ($1, $2, $3)
