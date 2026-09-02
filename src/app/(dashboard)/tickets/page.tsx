@@ -66,6 +66,16 @@ export default async function TicketsPage({
       [ticketId]
     );
     if (!statusRow || statusRow.status !== 'open') return;
+    const usedParts = await query<{ part_id: number; qty: number }>(
+      `SELECT part_id, qty FROM ticket_spare_parts WHERE ticket_id = $1`,
+      [ticketId]
+    );
+    for (const p of usedParts) {
+      await execute(
+        `UPDATE spare_parts SET current_qty = current_qty + $1 WHERE id = $2`,
+        [p.qty, p.part_id]
+      );
+    }
     await execute(`DELETE FROM ticket_progress_logs WHERE ticket_id = $1`, [ticketId]);
     await execute(`DELETE FROM safety_checklist_completions WHERE ticket_id = $1`, [ticketId]);
     await execute(`DELETE FROM ticket_spare_parts WHERE ticket_id = $1`, [ticketId]);
