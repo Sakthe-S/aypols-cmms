@@ -192,7 +192,7 @@ export default async function TicketDetailPage({
     if (!isAssignedTechnician) return;
     if (ticket.status !== 'allocated') return;
 
-    const needChecklist = applicableChecklist != null;
+    const needChecklist = applicableChecklist?.checklist_items != null;
     if (needChecklist) {
       const approval = await queryOne<{ id: number }>(
         `SELECT id FROM safety_checklist_completions
@@ -220,7 +220,7 @@ export default async function TicketDetailPage({
   async function completeSafetyChecklist(formData: FormData) {
     'use server';
     if (!isAssignedTechnician) return;
-    if (!applicableChecklist) return;
+    if (!applicableChecklist?.checklist_items) return;
     const items = JSON.parse(applicableChecklist.checklist_items as string);
     const responses = items.map((item: string, i: number) => ({
       item,
@@ -780,7 +780,7 @@ export default async function TicketDetailPage({
             {/* Start Work (Assigned Technician only) - gated by safety checklist */}
             {ticket.status === 'allocated' && ticket.assignedToId === userId && (
               <>
-                {applicableChecklist && !hasApprovedChecklist ? (
+                {applicableChecklist?.checklist_items && !hasApprovedChecklist ? (
                   <div className="border border-yellow-300 rounded-lg p-4 bg-yellow-50">
                     <h4 className="font-semibold text-yellow-800 flex items-center gap-2">
                       <AlertTriangle className="h-4 w-4" /> Safety Checklist Required
