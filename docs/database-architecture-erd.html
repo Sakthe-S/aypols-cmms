@@ -100,7 +100,7 @@
 <body>
 <div class="page">
   <h1>🗄️ Aypols CMMS — Database Architecture</h1>
-  <div class="subtitle">16 Tables · 7 Modules · SQLite / Prisma ORM · Phase 1 (Maintenance &amp; EHS)</div>
+  <div class="subtitle">20 Tables · 7 Modules · PostgreSQL / node-postgres (raw SQL) · Phase 1 (Maintenance &amp; EHS)</div>
 
   <div class="legend">
     <div class="legend-item"><span class="swatch" style="background:#3b82f6"></span> Users &amp; Auth</div>
@@ -137,7 +137,7 @@ const modules = [
   {
     title: '🔧 Maintenance Tickets', color: '#d97706',
     tables: [
-      { name: 'maintenance_tickets', fields: [['id','PK'],['ticket_number','UNIQUE'],['machine_id','FK'],['reported_by_id','FK'],['priority'],['category'],['issue_description'],['status'],['assigned_to_id','FK'],['start_time'],['end_time'],['downtime_minutes'],['diagnosis'],['root_cause'],['labor_cost'],['parts_cost'],['contractor_charges'],['total_repair_cost'],['closure_verified_by_id','FK']],
+      { name: 'maintenance_tickets', fields: [['id','PK'],['ticket_number','UNIQUE'],['machine_id','FK'],['reported_by_id','FK'],['priority'],['category'],['issue_description'],['status'],['assigned_to_id','FK'],['start_time'],['end_time'],['downtime_minutes'],['diagnosis'],['rootcause'],['labor_cost'],['parts_cost'],['contractor_charges'],['total_repair_cost'],['closure_outcome'],['closure_verified_by_id','FK'],['requested_parts'],['is_ehs']],
         rel: ['∞ ── 1 machines','∞ ── 1 users (reporter/assignee/verifier)','1 ── ∞ ticket_progress_logs, ticket_spare_parts'] },
       { name: 'ticket_progress_logs', fields: [['id','PK'],['ticket_id','FK'],['user_id','FK'],['notes'],['log_type']],
         rel: ['∞ ── 1 maintenance_tickets','∞ ── 1 users'] },
@@ -148,7 +148,7 @@ const modules = [
   {
     title: '📦 Spare Parts Inventory', color: '#059669',
     tables: [
-      { name: 'spare_parts', fields: [['id','PK'],['part_code','UNIQUE'],['part_name'],['category'],['unit'],['purchase_rate'],['current_qty'],['min_threshold'],['reorder_qty'],['storage_room'],['rack_bin'],['supplier']],
+      { name: 'spare_parts', fields: [['id','PK'],['part_code','UNIQUE'],['part_name'],['category'],['unit'],['purchase_rate'],['sale_rate'],['hsn_sac'],['current_qty'],['min_threshold'],['reorder_qty'],['storage_room'],['rack_bin'],['supplier']],
         rel: ['1 ── ∞ stock_transactions, ticket_spare_parts','low-stock: current_qty ≤ min_threshold'] },
       { name: 'stock_transactions', fields: [['id','PK'],['part_id','FK'],['transaction_type'],['quantity'],['reference_ticket_id','FK'],['reason'],['from_location'],['to_location'],['user_id','FK']],
         rel: ['∞ ── 1 spare_parts','∞ ── 1 users','in / out / transfer / adjustment'] }
@@ -176,10 +176,10 @@ const modules = [
         rel: ['∞ ── 1 safety_checklists','∞ ── 1 maintenance_tickets','safety gate before work'] },
       { name: 'training_records', fields: [['id','PK'],['training_name'],['training_type'],['frequency'],['next_due_date'],['lead_days'],['assigned_to_ids'],['document_url']],
         rel: ['1 ── ∞ training_completions'] },
-      { name: 'training_completions', fields: [['id','PK'],['training_id','FK'],['user_id','FK'],['completed_at'],['proof_document'],['status']],
-        rel: ['∞ ── 1 training_records','∞ ── 1 users','pending / completed / overdue'] },
-      { name: 'health_compliance_records', fields: [['id','PK'],['record_name'],['record_type'],['frequency'],['next_due_date'],['lead_days'],['document_url']],
-        rel: ['health / license / legal renewals'] }
+      { name: 'training_completions', fields: [['id','PK'],['training_id','FK'],['user_id','FK'],['completed_at'],['proof_document'],['status'],['verified_by_id','FK'],['verified_at'],['linked_ticket_id','FK']],
+        rel: ['∞ ── 1 training_records','∞ ── 1 users','pending / completed / overdue','EHS-verified via linked EHS ticket'] },
+      { name: 'health_compliance_records', fields: [['id','PK'],['record_name'],['record_type'],['frequency'],['next_due_date'],['lead_days'],['document_url'],['linked_ticket_id','FK']],
+        rel: ['health / license / legal renewals','linked_ticket_id → maintenance_tickets'] }
     ]
   },
   {

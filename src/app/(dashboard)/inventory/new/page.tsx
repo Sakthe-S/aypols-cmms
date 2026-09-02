@@ -14,8 +14,8 @@ export default async function NewPartPage() {
     'use server';
     if (userRole !== 'STORE_ADMIN' && userRole !== 'ADMIN') return;
     await execute(
-      `INSERT INTO spare_parts (part_code, part_name, category, unit, purchase_rate, current_qty, min_threshold, reorder_qty, storage_room, rack_bin, supplier, notes)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+      `INSERT INTO spare_parts (part_code, part_name, category, unit, purchase_rate, current_qty, min_threshold, reorder_qty, storage_room, rack_bin, supplier, notes, hsn_sac, sale_rate)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
       [
         formData.get('partCode') as string,
         formData.get('partName') as string,
@@ -29,6 +29,8 @@ export default async function NewPartPage() {
         formData.get('rackBin') as string || null,
         formData.get('supplier') as string || null,
         formData.get('notes') as string || null,
+        (formData.get('hsnSac') as string) || null,
+        parseFloat(formData.get('saleRate') as string) || 0,
       ]
     );
     redirect('/inventory');
@@ -78,6 +80,14 @@ export default async function NewPartPage() {
           <div>
             <label className="label">Purchase Rate (₹) *</label>
             <input type="number" name="purchaseRate" className="input-field" step="0.01" required />
+          </div>
+          <div>
+            <label className="label">Sale Rate (₹)</label>
+            <input type="number" name="saleRate" className="input-field" step="0.01" placeholder="e.g. 150.00" />
+          </div>
+          <div>
+            <label className="label">HSN / SAC Code</label>
+            <input type="text" name="hsnSac" className="input-field" placeholder="e.g. 8482" maxLength={10} />
           </div>
           <div>
             <label className="label">Current Quantity *</label>

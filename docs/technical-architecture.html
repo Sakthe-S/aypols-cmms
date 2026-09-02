@@ -75,7 +75,7 @@
 <body>
 <div class="page">
   <h1>⚙️ Aypols CMMS — Technical Architecture</h1>
-  <div class="subtitle">Full-stack Next.js 14 · Prisma ORM · SQLite · NextAuth v4 · Tailwind CSS</div>
+  <div class="subtitle">Full-stack Next.js 14 · PostgreSQL · node-postgres (pg) · NextAuth v4 · Tailwind CSS</div>
 
   <!-- Layered stack -->
   <div class="stack">
@@ -104,28 +104,29 @@
     <div class="layer">
       <div class="layer-lbl" style="background:#059669">Data Access</div>
       <div class="layer-items">
-        <span class="item">Prisma ORM 5</span>
-        <span class="item">Prisma Client Singleton</span>
-        <span class="item">Raw SQL queries</span>
-        <span class="item">Prisma Studio (dev)</span>
+        <span class="item">node-postgres (pg)</span>
+        <span class="item">Connection Pool singleton</span>
+        <span class="item">Parameterized SQL helpers (query / queryOne / execute)</span>
+        <span class="item">withTransaction() helper</span>
       </div>
     </div>
     <div class="arrow">▼</div>
     <div class="layer">
       <div class="layer-lbl" style="background:#dc2626">Data Store</div>
       <div class="layer-items">
-        <span class="item">SQLite (dev.db)</span>
-        <span class="item">16 Tables</span>
-        <span class="item">Seed data</span>
+        <span class="item">PostgreSQL</span>
+        <span class="item">20 Tables</span>
+        <span class="item">SQL migrations (baseline + incremental)</span>
+        <span class="item">updated_at triggers</span>
       </div>
     </div>
     <div class="arrow">▼</div>
     <div class="layer">
-      <div class="layer-lbl" style="background:#7c3aed">External (Future)</div>
+      <div class="layer-lbl" style="background:#7c3aed">External</div>
       <div class="layer-items">
-        <span class="item">WhatsApp Business API (pending)</span>
+        <span class="item">Twilio WhatsApp API</span>
+        <span class="item">Scheduled job endpoint (cron)</span>
         <span class="item">Tally Sync (Phase 2)</span>
-        <span class="item">Email (future)</span>
       </div>
     </div>
   </div>
@@ -165,17 +166,18 @@ src/app/login/      → sign-in page</div>
     </div>
 
     <div class="card">
-      <div class="card-header" style="background:#059669">🗄️ Database &amp; ORM</div>
+      <div class="card-header" style="background:#059669">🗄️ Database &amp; Data Access</div>
       <div class="card-body">
-        <b>Prisma ORM 5 → SQLite</b>
+        <b>PostgreSQL + node-postgres (pg)</b>
         <ul>
-          <li>Single client singleton (prevents connection leaks in dev)</li>
-          <li>Raw SQL for column-vs-column comparisons (low-stock logic)</li>
+          <li>Single pooled connection (prevents connection leaks in dev)</li>
+          <li>Parameterized SQL helpers: <b>query / queryOne / execute / withTransaction</b></li>
           <li>Transactions for atomic operations (deduct stock + log + link part)</li>
+          <li>SQL migrations under <span class="chip">migrations/</span> (baseline + incremental)</li>
         </ul>
-        <div class="code">prisma/schema.prisma  → 16 models
-src/lib/prisma.ts    → singleton client
-prisma/seed.ts       → demo data</div>
+        <div class="code">src/lib/db.ts        → pool + query helpers
+migrations/           → SQL migrations (0001..0008)
+prisma/seed.ts        → demo seeder (uses pg directly)</div>
       </div>
     </div>
 
@@ -192,7 +194,7 @@ prisma/seed.ts       → demo data</div>
   'use server'
   // 1. read formData
   // 2. calculate costs
-  // 3. prisma.maintenanceTicket.update(...)
+  // 3. await execute(`UPDATE maintenance_tickets SET ... WHERE id = $1`, [id])
   // 4. revalidatePath + redirect
 }</div>
       </div>
@@ -216,7 +218,8 @@ prisma/seed.ts       → demo data</div>
         </ul>
         <h4>Reminder Engine</h4>
         <ul>
-          <li>Triggers on dashboard load</li>
+          <li>Runs from a scheduled job (<span class="chip">/api/scheduled/run</span>) independent of page loads</li>
+          <li>Also runs on dashboard load for redundancy</li>
           <li>Checks PM / AMC / calibration / training due dates</li>
           <li>Dedup via 24h window; generates in-app notifications</li>
         </ul>
@@ -228,8 +231,9 @@ prisma/seed.ts       → demo data</div>
       <div class="card-body">
         <h4>WhatsApp Delivery (REQ-6.11)</h4>
         <ul>
-          <li>Mechanism not yet decided (Business API vs lighter approach)</li>
-          <li>Schema already has <span class="chip">sent_via_whatsapp</span> + <span class="chip">whatsapp_sent_at</span></li>
+          <li>Twilio WhatsApp API (implemented)</li>
+          <li>Per-user opt-in + per-type channel preference</li>
+          <li>Delivery runs from the scheduled job; pending queue flushed via <span class="chip">/api/whatsapp/send-pending</span></li>
         </ul>
         <h4>Phase 2 (Purchasing + General Inventory)</h4>
         <ul>
@@ -238,8 +242,8 @@ prisma/seed.ts       → demo data</div>
         </ul>
         <h4>Photo Uploads / Barcode / Predictive Analytics</h4>
         <ul>
-          <li>Schema fields exist (photo_url, photo_urls)</li>
-          <li>Deferred to later phases per PRD</li>
+          <li>Ticket photo upload implemented (<span class="chip">photo_paths[]</span>)</li>
+          <li>Barcode &amp; predictive analytics deferred to later phases per PRD</li>
         </ul>
       </div>
     </div>

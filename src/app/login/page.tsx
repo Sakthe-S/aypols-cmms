@@ -9,6 +9,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const showDemoCreds = process.env.NODE_ENV !== 'production';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -96,19 +97,21 @@ export default function LoginPage() {
             </button>
           </form>
 
-          <div className="mt-8 rounded-lg bg-gray-50 p-4">
-            <div className="flex items-center gap-2 text-sm font-medium text-gray-700">
-              <Shield className="h-4 w-4" />
-              Demo Credentials
+          {showDemoCreds && (
+            <div className="mt-8 rounded-lg bg-gray-50 p-4">
+              <div className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                <Shield className="h-4 w-4" />
+                Demo Credentials (Dev Only)
+              </div>
+              <div className="mt-2 space-y-1 text-xs text-gray-500">
+                <p>Admin: admin@aypols.com / password123</p>
+                <p>Supervisor: venkatesh@aypols.com / password123</p>
+                <p>Technician: stephan@aypols.com / password123</p>
+                <p>Store Admin: murugan@aypols.com / password123</p>
+                <p>EHS Officer: priya@aypols.com / password123</p>
+              </div>
             </div>
-            <div className="mt-2 space-y-1 text-xs text-gray-500">
-              <p>Admin: admin@aypols.com / password123</p>
-              <p>Supervisor: rajesh@aypols.com / password123</p>
-              <p>Technician: kumar@aypols.com / password123</p>
-              <p>Store Admin: murugan@aypols.com / password123</p>
-              <p>EHS Officer: priya@aypols.com / password123</p>
-            </div>
-          </div>
+          )}
         </div>
       </div>
     </div>

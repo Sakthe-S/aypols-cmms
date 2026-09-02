@@ -83,6 +83,7 @@ export default async function PmPage() {
       case 'monthly': nextDue = new Date(now.getTime() + 30 * 86400000); break;
       case 'quarterly': nextDue = new Date(now.getTime() + 90 * 86400000); break;
       case 'half_yearly': nextDue = new Date(now.getTime() + 180 * 86400000); break;
+      case 'annual':
       case 'yearly': nextDue = new Date(now.getTime() + 365 * 86400000); break;
     }
 

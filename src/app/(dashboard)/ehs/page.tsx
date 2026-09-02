@@ -45,6 +45,23 @@ export default async function EhsPage() {
     `SELECT * FROM health_compliance_records WHERE is_active = true`
   )).map(toCamel);
 
+  // EHS tickets raised through the ticket system (REQ-6.10-03)
+  const ehsTickets = (await query<Record<string, unknown>>(
+    `SELECT t.id, t.ticket_number, t.machine_id, t.priority, t.status,
+            t.issue_description, t.reported_date, t.closure_outcome,
+            m.machine_name, r.name AS reporter_name
+     FROM maintenance_tickets t
+     JOIN machines m ON m.id = t.machine_id
+     JOIN users r ON r.id = t.reported_by_id
+     WHERE t.is_ehs = true
+     ORDER BY t.reported_date DESC
+     LIMIT 50`
+  )).map(row => ({
+    ...toCamel(row),
+    machine: { machineName: row['machine_name'] },
+    reportedBy: { name: row['reporter_name'] },
+  }));
+
   const overrideHistoryRows = await query<Record<string, unknown>>(
     `SELECT oh.*, u.name AS overridden_by_name
      FROM compliance_override_history oh
@@ -139,6 +156,21 @@ export default async function EhsPage() {
     const id = Number(formData.get('id'));
     await execute(`DELETE FROM training_completions WHERE training_id = $1`, [id]);
     await execute(`DELETE FROM training_records WHERE id = $1`, [id]);
+    revalidatePath('/ehs');
+    redirect('/ehs');
+  }
+
+  // EHS Officer verification (REQ-6.10-03) - only EHS Officers and Admins approve.
+  async function verifyTrainingCompletion(formData: FormData) {
+    'use server';
+    if (userRole !== 'EHS_OFFICER' && userRole !== 'ADMIN') return;
+    const completionId = Number(formData.get('completionId'));
+    await execute(
+      `UPDATE training_completions
+       SET status = 'verified', verified_by_id = $1, verified_at = NOW()
+       WHERE id = $2 AND verified_at IS NULL`,
+      [userId, completionId]
+    );
     revalidatePath('/ehs');
     redirect('/ehs');
   }
@@ -330,6 +362,7 @@ export default async function EhsPage() {
                   <th className="table-header px-6 py-3">Next Due</th>
                   <th className="table-header px-6 py-3">Assigned</th>
                   <th className="table-header px-6 py-3">Completed</th>
+                  <th className="table-header px-6 py-3">EHS Verified</th>
                   <th className="table-header px-6 py-3">Status</th>
                   {canManage && <th className="table-header px-6 py-3">Actions</th>}
                 </tr>
@@ -337,7 +370,9 @@ export default async function EhsPage() {
               <tbody className="divide-y divide-gray-100">
                 {trainings.map((tr) => {
                   const assigned = JSON.parse(tr.assignedToIds || '[]');
-                  const completedCount = tr.completions.filter((c: any) => c.status === 'completed').length;
+                  const completedCount = tr.completions.filter((c: any) => c.status === 'completed' || c.status === 'verified').length;
+                  const verifiedCount = tr.completions.filter((c: any) => c.verifiedAt).length;
+                  const pendingCompletion = tr.completions.find((c: any) => !c.verifiedAt);
                   const isOverdue = tr.nextDueDate && tr.nextDueDate < now;
                   return (
                     <tr key={tr.id} className="hover:bg-gray-50">
@@ -353,6 +388,7 @@ export default async function EhsPage() {
                       </td>
                       <td className="px-6 py-3">{assigned.length} employees</td>
                       <td className="px-6 py-3">{completedCount}/{assigned.length}</td>
+                      <td className="px-6 py-3">{verifiedCount}/{assigned.length}</td>
                       <td className="px-6 py-3">
                         {isOverdue ? (
                           <span className="badge bg-red-100 text-red-800">Overdue</span>
@@ -365,6 +401,18 @@ export default async function EhsPage() {
                       {canManage && (
                         <td className="px-6 py-3">
                           <div className="flex items-center gap-2">
+                            {pendingCompletion && (userRole === 'EHS_OFFICER' || userRole === 'ADMIN') && (
+                              <form action={verifyTrainingCompletion}>
+                                <input type="hidden" name="completionId" value={pendingCompletion.id} />
+                                <button
+                                  type="submit"
+                                  className="btn-success px-2 py-1 text-xs"
+                                  title="Approve the pending completion as EHS Officer"
+                                >
+                                  Verify
+                                </button>
+                              </form>
+                            )}
                             <details>
                               <summary className="cursor-pointer text-xs font-medium text-yellow-700 hover:underline">
                                 Override
@@ -397,7 +445,7 @@ export default async function EhsPage() {
                   );
                 })}
                 {trainings.length === 0 && (
-                  <tr><td colSpan={canManage ? 8 : 7} className="px-6 py-8 text-center text-gray-500">No training records</td></tr>
+                  <tr><td colSpan={canManage ? 9 : 8} className="px-6 py-8 text-center text-gray-500">No training records</td></tr>
                 )}
               </tbody>
             </table>
@@ -406,7 +454,9 @@ export default async function EhsPage() {
         <div className="space-y-3 md:hidden">
           {trainings.map((tr) => {
             const assigned = JSON.parse(tr.assignedToIds || '[]');
-            const completedCount = tr.completions.filter((c: any) => c.status === 'completed').length;
+            const completedCount = tr.completions.filter((c: any) => c.status === 'completed' || c.status === 'verified').length;
+            const verifiedCount = tr.completions.filter((c: any) => c.verifiedAt).length;
+            const pendingCompletion = tr.completions.find((c: any) => !c.verifiedAt);
             const isOverdue = tr.nextDueDate && tr.nextDueDate < now;
             return (
               <div key={tr.id} className="card p-4">
@@ -430,8 +480,14 @@ export default async function EhsPage() {
                   </p>
                 </div>
                 <div className="mt-2 border-t border-gray-100 pt-2 text-xs text-gray-500">
-                  {completedCount}/{assigned.length} employees completed
+                  {completedCount}/{assigned.length} employees completed &middot; EHS Verified: {verifiedCount}
                 </div>
+                {pendingCompletion && (userRole === 'EHS_OFFICER' || userRole === 'ADMIN') && (
+                  <form action={verifyTrainingCompletion} className="mt-2">
+                    <input type="hidden" name="completionId" value={pendingCompletion.id} />
+                    <button type="submit" className="btn-success w-full text-xs">Verify Completion as EHS Officer</button>
+                  </form>
+                )}
               </div>
             );
           })}
@@ -584,6 +640,60 @@ export default async function EhsPage() {
           )}
         </div>
       </div>
+
+      {/* EHS Tickets (REQ-6.10-03) - EHS matters tracked as tickets */}
+      {ehsTickets.length > 0 && (
+        <div>
+          <div className="mb-4 flex items-center gap-2">
+            <FileCheck className="h-5 w-5 text-primary-600" />
+            <h2 className="text-lg font-semibold text-gray-900">EHS Tickets</h2>
+            <a href="/tickets" className="ml-auto text-xs font-medium text-primary-600 hover:underline">
+              View all tickets
+            </a>
+          </div>
+          <div className="card overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr>
+                  <th className="table-header px-6 py-3">Ticket</th>
+                  <th className="table-header px-6 py-3">Machine</th>
+                  <th className="table-header px-6 py-3">Priority</th>
+                  <th className="table-header px-6 py-3">Status</th>
+                  <th className="table-header px-6 py-3">Reported By</th>
+                  <th className="table-header px-6 py-3">Description</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {ehsTickets.map((t) => (
+                  <tr key={t.id} className="hover:bg-gray-50">
+                    <td className="px-6 py-3">
+                      <a href={`/tickets/${t.id}`} className="font-semibold text-primary-600 hover:underline">
+                        {t.ticketNumber}
+                      </a>
+                    </td>
+                    <td className="px-6 py-3 text-gray-700">{t.machine.machineName}</td>
+                    <td className="px-6 py-3">
+                      <span className={`badge ${
+                        t.priority === 'critical' ? 'bg-red-100 text-red-800' :
+                        t.priority === 'high' ? 'bg-orange-100 text-orange-800' :
+                        t.priority === 'medium' ? 'bg-yellow-100 text-yellow-800' :
+                        'bg-blue-100 text-blue-800'
+                      }`}>
+                        {t.priority}
+                      </span>
+                    </td>
+                    <td className="px-6 py-3">
+                      <span className="badge bg-gray-100 text-gray-700">{t.status}</span>
+                    </td>
+                    <td className="px-6 py-3 text-gray-700">{t.reportedBy.name}</td>
+                    <td className="px-6 py-3 text-gray-600">{t.issueDescription}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Override History (Admin only) */}
       {isAdmin && (

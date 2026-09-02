@@ -7,6 +7,7 @@ import { formatCurrency, formatDateTime, getStatusColor, getPriorityColor } from
 import ConfirmForm from '@/components/ConfirmForm';
 import TicketPhotos from '@/components/TicketPhotos';
 import { deleteTicketPhotos } from '@/lib/ticketPhotos';
+import { isSupervisor, isAdmin } from '@/lib/roles';
 import {
   Clock,
   Wrench,
@@ -101,6 +102,11 @@ export default async function TicketDetailPage({
     [['TECHNICIAN', 'SUPERVISOR']]
   )).map(toCamel);
 
+  const defaultLaborRateRow = await queryOne<{ default_labor_rate: number | null }>(
+    `SELECT default_labor_rate FROM app_config ORDER BY id LIMIT 1`
+  );
+  const defaultLaborRate = Number(defaultLaborRateRow?.default_labor_rate || 0);
+
   // Safety checklist gate
   const applicableChecklist = ticket.category
     ? await queryOne<any>(
@@ -109,9 +115,20 @@ export default async function TicketDetailPage({
       )
     : null;
 
-  const hasChecklistCompletion = applicableChecklist
+  const hasApprovedChecklist = applicableChecklist
     ? await queryOne<{ id: number }>(
-        `SELECT id FROM safety_checklist_completions WHERE checklist_id = $1 AND ticket_id = $2 LIMIT 1`,
+        `SELECT id FROM safety_checklist_completions
+         WHERE checklist_id = $1 AND ticket_id = $2 AND is_approved = true
+         ORDER BY approved_at DESC NULLS LAST LIMIT 1`,
+        [applicableChecklist.id, ticketId]
+      )
+    : null;
+
+  const hasPendingChecklist = applicableChecklist
+    ? await queryOne<{ id: number }>(
+        `SELECT id FROM safety_checklist_completions
+         WHERE checklist_id = $1 AND ticket_id = $2 AND is_approved = false AND override_by_id IS NULL
+         ORDER BY completed_at DESC LIMIT 1`,
         [applicableChecklist.id, ticketId]
       )
     : null;
@@ -119,6 +136,9 @@ export default async function TicketDetailPage({
   const canAddParts = ['in_progress', 'allocated'].includes(ticket.status);
   const canAddNotes = ['in_progress', 'allocated', 'completed'].includes(ticket.status);
   const isOpen = ['open', 'allocated', 'in_progress', 'completed'].includes(ticket.status);
+  const isAssignedTechnician = ticket.assignedToId === userId;
+  const isSupervisorUser = isSupervisor(userRole);
+  const isAdminUser = isAdmin(userRole);
 
   async function allocateTicket(formData: FormData) {
     'use server';
@@ -169,10 +189,24 @@ export default async function TicketDetailPage({
 
   async function startWork() {
     'use server';
+    if (!isAssignedTechnician) return;
+    if (ticket.status !== 'allocated') return;
+
+    const needChecklist = applicableChecklist != null;
+    if (needChecklist) {
+      const approval = await queryOne<{ id: number }>(
+        `SELECT id FROM safety_checklist_completions
+         WHERE ticket_id = $1 AND is_approved = true
+         ORDER BY approved_at DESC NULLS LAST LIMIT 1`,
+        [ticketId]
+      );
+      if (!approval) return;
+    }
+
     await withTransaction(async (tx) => {
       await tx.query(
-        `UPDATE maintenance_tickets SET status = 'in_progress', start_time = NOW() WHERE id = $1`,
-        [ticketId]
+        `UPDATE maintenance_tickets SET status = 'in_progress', start_time = NOW() WHERE id = $1 AND assigned_to_id = $2`,
+        [ticketId, userId]
       );
       await tx.query(
         `INSERT INTO ticket_progress_logs (ticket_id, user_id, notes, log_type) VALUES ($1, $2, $3, $4)`,
@@ -185,6 +219,7 @@ export default async function TicketDetailPage({
 
   async function completeSafetyChecklist(formData: FormData) {
     'use server';
+    if (!isAssignedTechnician) return;
     if (!applicableChecklist) return;
     const items = JSON.parse(applicableChecklist.checklist_items as string);
     const responses = items.map((item: string, i: number) => ({
@@ -198,7 +233,7 @@ export default async function TicketDetailPage({
       await tx.query(
         `INSERT INTO safety_checklist_completions (checklist_id, ticket_id, completed_by_id, is_approved, responses)
          VALUES ($1, $2, $3, $4, $5)`,
-        [applicableChecklist.id, ticketId, userId, allChecked, JSON.stringify(responses)]
+        [applicableChecklist.id, ticketId, userId, false, JSON.stringify(responses)]
       );
 
       await tx.query(
@@ -206,7 +241,7 @@ export default async function TicketDetailPage({
         [
           ticketId,
           userId,
-          `Safety checklist completed: ${allChecked ? 'All items passed' : 'Some items failed - requires supervisor override'}`,
+          `Safety checklist submitted: ${allChecked ? 'All items passed - awaiting supervisor approval' : 'Some items failed - requires supervisor override'}`,
           'status_change',
         ]
       );
@@ -216,8 +251,32 @@ export default async function TicketDetailPage({
     redirect(`/tickets/${ticketId}`);
   }
 
+  async function approveSafetyChecklist() {
+    'use server';
+    if (!isSupervisorUser && !isAdminUser) return;
+
+    await withTransaction(async (tx) => {
+      await tx.query(
+        `UPDATE safety_checklist_completions
+         SET is_approved = true, supervisor_id = $1, approved_at = NOW()
+         WHERE ticket_id = $2
+           AND is_approved = false
+           AND override_by_id IS NULL`,
+        [userId, ticketId]
+      );
+      await tx.query(
+        `INSERT INTO ticket_progress_logs (ticket_id, user_id, notes, log_type) VALUES ($1, $2, $3, $4)`,
+        [ticketId, userId, 'Safety checklist approved by supervisor', 'status_change']
+      );
+    });
+
+    revalidatePath(`/tickets/${ticketId}`);
+    redirect(`/tickets/${ticketId}`);
+  }
+
   async function overrideSafetyChecklist(formData: FormData) {
     'use server';
+    if (!isSupervisorUser && !isAdminUser) return;
     if (!applicableChecklist) return;
     const reason = formData.get('reason') as string;
 
@@ -248,6 +307,8 @@ export default async function TicketDetailPage({
 
   async function addPartsUsed(formData: FormData) {
     'use server';
+    if (!(isAssignedTechnician || isSupervisorUser || isAdminUser)) return;
+    if (!['in_progress', 'allocated'].includes(ticket.status)) return;
     const partId = Number(formData.get('partId'));
     const qty = parseFloat(formData.get('qty') as string);
 
@@ -289,6 +350,8 @@ export default async function TicketDetailPage({
 
   async function addProgressNote(formData: FormData) {
     'use server';
+    if (!(isAssignedTechnician || isSupervisorUser || isAdminUser || ticket.reportedById === userId)) return;
+    if (!['in_progress', 'allocated', 'completed'].includes(ticket.status)) return;
     const notes = formData.get('notes') as string;
     await execute(
       `INSERT INTO ticket_progress_logs (ticket_id, user_id, notes, log_type) VALUES ($1, $2, $3, $4)`,
@@ -300,11 +363,18 @@ export default async function TicketDetailPage({
 
   async function completeWork(formData: FormData) {
     'use server';
+    if (!isAssignedTechnician) return;
+    if (ticket.status !== 'in_progress') return;
     const diagnosis = formData.get('diagnosis') as string;
     const rootCause = formData.get('rootCause') as string;
     const actionsTaken = formData.get('actionsTaken') as string;
     const laborHours = parseFloat(formData.get('laborHours') as string) || 0;
-    const laborRate = parseFloat(formData.get('laborRate') as string) || 400;
+    const laborRateRaw = parseFloat(formData.get('laborRate') as string);
+    const defaultRateRow = await queryOne<{ default_labor_rate: number | null }>(
+      `SELECT default_labor_rate FROM app_config ORDER BY id LIMIT 1`
+    );
+    const defaultRate = Number(defaultRateRow?.default_labor_rate || 0);
+    const laborRate = laborRateRaw || defaultRate || 0;
     const contractorCharges = parseFloat(formData.get('contractorCharges') as string) || 0;
     const otherCosts = parseFloat(formData.get('otherCosts') as string) || 0;
 
@@ -339,9 +409,11 @@ export default async function TicketDetailPage({
     redirect(`/tickets/${ticketId}`);
   }
 
-  async function verifyAndClose() {
+  async function verifyAndClose(formData: FormData) {
     'use server';
-    if (userRole !== 'SUPERVISOR' && userRole !== 'ADMIN') return;
+    if (!isSupervisorUser && !isAdminUser) return;
+    const outcome = (formData.get('closureOutcome') as string) || 'closed';
+    if (!['closed', 'pending', 'carry_forward', 'complaint'].includes(outcome)) return;
     await withTransaction(async (tx) => {
       const finalParts = await tx.query<{ total_cost: number }>(
         `SELECT total_cost FROM ticket_spare_parts WHERE ticket_id = $1`,
@@ -361,10 +433,10 @@ export default async function TicketDetailPage({
 
       await tx.query(
         `UPDATE maintenance_tickets SET
-           status = 'closed', closure_outcome = 'closed', closure_verified_by_id = $1,
-           closure_date = NOW(), parts_cost = $2, total_repair_cost = $3
-         WHERE id = $4`,
-        [userId, partsCost, totalRepairCost, ticketId]
+           status = 'closed', closure_outcome = $1, closure_verified_by_id = $2,
+           closure_date = NOW(), parts_cost = $3, total_repair_cost = $4
+         WHERE id = $5`,
+        [outcome, userId, partsCost, totalRepairCost, ticketId]
       );
 
       await tx.query(
@@ -377,7 +449,7 @@ export default async function TicketDetailPage({
 
       await tx.query(
         `INSERT INTO ticket_progress_logs (ticket_id, user_id, notes, log_type) VALUES ($1, $2, $3, $4)`,
-        [ticketId, userId, `Ticket verified and closed. Final cost: ${formatCurrency(totalRepairCost)}`, 'status_change']
+        [ticketId, userId, `Ticket verified and closed (${outcome.replace('_', ' ')}). Final cost: ${formatCurrency(totalRepairCost)}`, 'status_change']
       );
     });
 
@@ -486,6 +558,43 @@ export default async function TicketDetailPage({
                     <p className="mt-1 text-gray-700">{ticket.actionsTaken}</p>
                   </div>
                 )}
+              </div>
+            </div>
+          )}
+
+          {/* Requested Parts (REQ-6.1-01) */}
+          {Array.isArray(ticket.requestedParts) && ticket.requestedParts.length > 0 && (
+            <div className="card p-6">
+              <h3 className="mb-3 text-lg font-semibold text-gray-900">
+                <Package className="inline h-5 w-5 mr-1" /> Requested Parts
+              </h3>
+              <div className="hidden overflow-x-auto md:block">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr>
+                      <th className="table-header px-4 py-2">Part</th>
+                      <th className="table-header px-4 py-2">Code</th>
+                      <th className="table-header px-4 py-2">Requested Qty</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {ticket.requestedParts.map((rp: any, idx: number) => (
+                      <tr key={idx}>
+                        <td className="px-4 py-2 font-medium">{rp.partName}</td>
+                        <td className="px-4 py-2 text-gray-500">{rp.partCode}</td>
+                        <td className="px-4 py-2">{rp.qty} {rp.unit}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="space-y-3 md:hidden">
+                {ticket.requestedParts.map((rp: any, idx: number) => (
+                  <div key={idx} className="rounded-lg border border-gray-100 p-3">
+                    <p className="font-medium text-gray-900">{rp.partName}</p>
+                    <p className="text-xs text-gray-500">{rp.partCode} &middot; Requested: {rp.qty} {rp.unit}</p>
+                  </div>
+                ))}
               </div>
             </div>
           )}
@@ -671,33 +780,53 @@ export default async function TicketDetailPage({
             {/* Start Work (Assigned Technician only) - gated by safety checklist */}
             {ticket.status === 'allocated' && ticket.assignedToId === userId && (
               <>
-                {applicableChecklist && !hasChecklistCompletion ? (
+                {applicableChecklist && !hasApprovedChecklist ? (
                   <div className="border border-yellow-300 rounded-lg p-4 bg-yellow-50">
                     <h4 className="font-semibold text-yellow-800 flex items-center gap-2">
                       <AlertTriangle className="h-4 w-4" /> Safety Checklist Required
                     </h4>
-                    <p className="mt-1 text-sm text-yellow-700">
-                      Complete the safety checklist before starting work: <strong>{applicableChecklist.name}</strong>
-                    </p>
-                    <form action={completeSafetyChecklist} className="mt-3 space-y-2">
-                      {JSON.parse(applicableChecklist.checklist_items).map((item: string, i: number) => (
-                        <label key={i} className="flex items-start gap-2 text-sm">
-                          <input type="checkbox" name={`check_${i}`} className="mt-0.5 h-4 w-4 rounded border-gray-300" />
-                          <span className="text-gray-700">{item}</span>
-                        </label>
-                      ))}
-                      <button type="submit" className="btn-success w-full mt-2">
-                        <CheckCircle2 className="mr-2 h-4 w-4" /> Complete Checklist & Start Work
-                      </button>
-                    </form>
-                    {(userRole === 'SUPERVISOR' || userRole === 'ADMIN') && (
-                      <form action={overrideSafetyChecklist} className="mt-3 space-y-2 border-t pt-3">
-                        <p className="text-xs text-yellow-700 font-medium">Supervisor Override:</p>
-                        <input type="text" name="reason" className="input-field" placeholder="Override reason" required />
-                        <button type="submit" className="btn-danger w-full text-xs">
-                          Override & Start Work
-                        </button>
-                      </form>
+                    {hasPendingChecklist ? (
+                      <div className="mt-2">
+                        <p className="text-sm text-yellow-700">
+                          Your checklist has been submitted and is <strong>awaiting supervisor approval.</strong>
+                        </p>
+                        {hasPendingChecklist && (isSupervisorUser || isAdminUser) && (
+                          <form action={approveSafetyChecklist} className="mt-3">
+                            <button type="submit" className="btn-success w-full text-xs">
+                              <CheckCircle2 className="mr-2 h-4 w-4" /> Approve Checklist
+                            </button>
+                          </form>
+                        )}
+                      </div>
+                    ) : (
+                      <>
+                        <p className="mt-1 text-sm text-yellow-700">
+                          Complete the safety checklist before starting work: <strong>{applicableChecklist.name}</strong>
+                        </p>
+                        <form action={completeSafetyChecklist} className="mt-3 space-y-2">
+                          {JSON.parse(applicableChecklist.checklist_items).map((item: string, i: number) => (
+                            <label key={i} className="flex items-start gap-2 text-sm">
+                              <input type="checkbox" name={`check_${i}`} className="mt-0.5 h-4 w-4 rounded border-gray-300" />
+                              <span className="text-gray-700">{item}</span>
+                            </label>
+                          ))}
+                          <button type="submit" className="btn-success w-full mt-2">
+                            <CheckCircle2 className="mr-2 h-4 w-4" /> Submit Checklist
+                          </button>
+                          <p className="text-xs text-yellow-700">
+                            All items must pass; a supervisor will approve before work can start.
+                          </p>
+                        </form>
+                        {(isSupervisorUser || isAdminUser) && (
+                          <form action={overrideSafetyChecklist} className="mt-3 space-y-2 border-t pt-3">
+                            <p className="text-xs text-yellow-700 font-medium">Supervisor Override:</p>
+                            <input type="text" name="reason" className="input-field" placeholder="Override reason" required />
+                            <button type="submit" className="btn-danger w-full text-xs">
+                              Override & Start Work
+                            </button>
+                          </form>
+                        )}
+                      </>
                     )}
                   </div>
                 ) : (
@@ -732,7 +861,7 @@ export default async function TicketDetailPage({
                   </div>
                   <div>
                     <label className="label">Labor Rate/hr</label>
-                    <input type="number" name="laborRate" className="input-field" defaultValue="400" />
+                    <input type="number" name="laborRate" className="input-field" defaultValue={defaultLaborRate || ''} />
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
@@ -752,16 +881,27 @@ export default async function TicketDetailPage({
             )}
 
             {/* Verify & Close (Supervisor) */}
-            {ticket.status === 'completed' && (userRole === 'SUPERVISOR' || userRole === 'ADMIN') && (
-              <form action={verifyAndClose}>
+            {ticket.status === 'completed' && (isSupervisorUser || isAdminUser) && (
+              <form action={verifyAndClose} className="space-y-3">
+                <div>
+                  <label className="label">Closure Outcome</label>
+                  <select name="closureOutcome" className="input-field" defaultValue="closed">
+                    <option value="closed">Closed</option>
+                    <option value="pending">Pending</option>
+                    <option value="carry_forward">Carry-Forward</option>
+                    <option value="complaint">Complaint</option>
+                  </select>
+                </div>
                 <button type="submit" className="btn-primary w-full">
-                  <CheckCircle2 className="mr-2 h-4 w-4" /> Verify & Close
+                  <CheckCircle2 className="mr-2 h-4 w-4" /> Verify &amp; Close
                 </button>
               </form>
             )}
 
             {ticket.status === 'closed' && (
-              <p className="text-center text-sm text-gray-500">This ticket is closed.</p>
+              <p className="text-center text-sm text-gray-500">
+                This ticket is closed. Outcome: <span className="font-medium">{ticket.closureOutcome || 'closed'}</span>.
+              </p>
             )}
           </div>
 

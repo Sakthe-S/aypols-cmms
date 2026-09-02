@@ -1,0 +1,51 @@
+'use client';
+
+import { useState, useRef } from 'react';
+
+export default function RequestPartsInput({ parts }: { parts: { id: number; partCode: string; partName: string }[] }) {
+  const [rows, setRows] = useState<number[]>([0]);
+  const nextRef = useRef(1);
+
+  return (
+    <div className="space-y-2">
+      {rows.map((key) => (
+        <div key={key} className="flex items-end gap-2">
+          <div className="flex-1">
+            <label className="label">Part</label>
+            <select name="requestPartId" className="input-field" defaultValue="">
+              <option value="">Select part</option>
+              {parts.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.partCode} - {p.partName}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="w-28">
+            <label className="label">Qty</label>
+            <input type="number" name="requestQty" className="input-field" step="0.01" min="0" defaultValue="" />
+          </div>
+          {rows.length > 1 && (
+            <button
+              type="button"
+              className="mb-1 text-xs font-medium text-red-600 hover:underline"
+              onClick={() => setRows((r) => r.filter((k) => k !== key))}
+            >
+              Remove
+            </button>
+          )}
+        </div>
+      ))}
+      <button
+        type="button"
+        className="text-xs font-medium text-primary-600 hover:underline"
+        onClick={() => {
+          setRows((r) => [...r, nextRef.current]);
+          nextRef.current += 1;
+        }}
+      >
+        + Add another part
+      </button>
+    </div>
+  );
+}

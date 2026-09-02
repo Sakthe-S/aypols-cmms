@@ -159,6 +159,8 @@ export default async function InventoryPage({
                 <th className="table-header px-6 py-3">Qty</th>
                 <th className="table-header px-6 py-3">Min Threshold</th>
                 <th className="table-header px-6 py-3">Unit Price</th>
+                <th className="table-header px-6 py-3">Sale Rate</th>
+                <th className="table-header px-6 py-3">HSN/SAC</th>
                 <th className="table-header px-6 py-3">Location</th>
                 <th className="table-header px-6 py-3">Status</th>
                 {canDelete && <th className="table-header px-6 py-3">Actions</th>}
@@ -184,6 +186,12 @@ export default async function InventoryPage({
                     <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-700">{part.minThreshold}</td>
                     <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-700">
                       {formatCurrency(part.purchaseRate)}
+                    </td>
+                    <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-700">
+                      {formatCurrency(part.saleRate)}
+                    </td>
+                    <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-700">
+                      {part.hsnSac || '-'}
                     </td>
                     <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-700">
                       {part.storageRoom}{part.rackBin ? `, ${part.rackBin}` : ''}
@@ -212,7 +220,7 @@ export default async function InventoryPage({
               })}
               {parts.length === 0 && (
                 <tr>
-                  <td colSpan={canDelete ? 9 : 8} className="px-6 py-12 text-center text-sm text-gray-500">
+                  <td colSpan={canDelete ? 11 : 10} className="px-6 py-12 text-center text-sm text-gray-500">
                     No parts found
                   </td>
                 </tr>
@@ -260,6 +268,13 @@ export default async function InventoryPage({
                 </div>
               </div>
               <p className="mt-2 text-xs text-gray-500">{part.storageRoom}{part.rackBin ? `, ${part.rackBin}` : ''}</p>
+              {part.hsnSac && part.saleRate ? (
+                <p className="mt-1 text-xs text-gray-500">Sale: {formatCurrency(part.saleRate)} &middot; HSN: {part.hsnSac}</p>
+              ) : part.hsnSac ? (
+                <p className="mt-1 text-xs text-gray-500">HSN: {part.hsnSac}</p>
+              ) : part.saleRate ? (
+                <p className="mt-1 text-xs text-gray-500">Sale: {formatCurrency(part.saleRate)}</p>
+              ) : null}
               {canDelete && (
                 <ConfirmForm action={deletePart} message="Delete this part and its history?" className="mt-2">
                   <input type="hidden" name="id" value={part.id} />

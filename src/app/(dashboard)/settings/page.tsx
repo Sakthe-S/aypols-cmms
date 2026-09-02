@@ -17,10 +17,9 @@ import {
   Lock,
 } from 'lucide-react';
 import { isWhatsAppConfigured, sendWhatsApp } from '@/lib/whatsapp';
+import { ROLES, isAdmin as isAdminRole } from '@/lib/roles';
 
 export const dynamic = 'force-dynamic';
-
-const ROLES = ['EMPLOYEE', 'TECHNICIAN', 'SUPERVISOR', 'STORE_ADMIN', 'EHS_OFFICER', 'ADMIN'];
 
 export default async function SettingsPage({
   searchParams,
@@ -30,7 +29,7 @@ export default async function SettingsPage({
   const session = await getServerSession(authOptions);
   const userId = Number((session?.user as any)?.id);
   const userRole = (session?.user as any)?.role;
-  const isAdmin = userRole === 'ADMIN';
+  const isAdmin = isAdminRole(userRole);
 
   const currentUserRow = await queryOne<Record<string, unknown>>(
     `SELECT * FROM users WHERE id = $1`,
@@ -170,8 +169,9 @@ export default async function SettingsPage({
     const role = formData.get('role') as string;
     const trade = (formData.get('trade') as string) || null;
     const phone = (formData.get('phone') as string) || null;
-    const rawPass = (formData.get('password') as string) || 'password123';
+    const rawPass = formData.get('password') as string;
     if (!name || !email) redirect('/settings?error=create');
+    if (!rawPass || rawPass.length < 6) redirect('/settings?error=password-create');
     const existing = await queryOne<{ id: number }>(`SELECT id FROM users WHERE email = $1`, [email]);
     if (existing) redirect('/settings?error=create');
     const hash = await bcrypt.hash(rawPass, 10);
@@ -648,14 +648,14 @@ export default async function SettingsPage({
                   <input type="text" name="phone" className="input-field" placeholder="9876543210" />
                 </div>
                 <div>
-                  <label className="label">Initial Password</label>
-                  <input type="text" name="password" className="input-field" defaultValue="password123" />
+                  <label className="label">Initial Password *</label>
+                  <input type="text" name="password" required minLength={6} className="input-field" placeholder="Minimum 6 characters" />
                 </div>
                 <div className="sm:col-span-2 lg:col-span-3">
                   <button type="submit" className="btn-success">
                     <UserPlus className="mr-2 h-4 w-4" /> Create User
                   </button>
-                  <p className="mt-2 text-xs text-gray-400">Default password can be changed by the user later.</p>
+                  <p className="mt-2 text-xs text-gray-400">A password is required; the user can change it later.</p>
                 </div>
               </form>
             </div>
@@ -721,6 +721,13 @@ function Banner({ search }: { search?: { whatsapp?: string; success?: string; er
     return (
       <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
         Could not create user. Name and email are required, and the email must be unique.
+      </div>
+    );
+  }
+  if (search?.error === 'password-create') {
+    return (
+      <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+        Could not create user. An initial password of at least 6 characters is required.
       </div>
     );
   }

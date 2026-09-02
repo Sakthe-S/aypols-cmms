@@ -185,6 +185,11 @@ export default async function PartDetailPage({ params }: { params: { id: string 
             {part.category} &middot; {part.storageRoom}{part.rackBin ? `, ${part.rackBin}` : ''}
           </p>
         </div>
+        {canDelete && (
+          <a href={`/inventory/${partId}/edit`} className="btn-secondary">
+            Edit Part
+          </a>
+        )}
         {userRole === 'ADMIN' && (
           <ConfirmForm action={deletePart} message="Delete this part and all its history?">
             <button type="submit" className="btn-danger">
@@ -277,6 +282,14 @@ export default async function PartDetailPage({ params }: { params: { id: string 
               <div>
                 <span className="text-gray-500">Rack/Bin</span>
                 <p className="font-medium">{part.rackBin || '-'}</p>
+              </div>
+              <div>
+                <span className="text-gray-500">HSN / SAC</span>
+                <p className="font-medium">{part.hsnSac || '-'}</p>
+              </div>
+              <div>
+                <span className="text-gray-500">Sale Rate</span>
+                <p className="font-medium">{part.saleRate ? formatCurrency(part.saleRate) : '-'}</p>
               </div>
               <div>
                 <span className="text-gray-500">Notes</span>
