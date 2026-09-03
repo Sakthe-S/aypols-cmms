@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef } from 'react';
+import SearchablePartSelect from '@/components/SearchablePartSelect';
 
 export default function RequestPartsInput({ parts }: { parts: { id: number; partCode: string; partName: string }[] }) {
   const [rows, setRows] = useState<number[]>([0]);
@@ -12,14 +13,7 @@ export default function RequestPartsInput({ parts }: { parts: { id: number; part
         <div key={key} className="flex items-end gap-2">
           <div className="flex-1">
             <label className="label">Part</label>
-            <select name="requestPartId" className="input-field" defaultValue="">
-              <option value="">Select part</option>
-              {parts.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.partCode} - {p.partName}
-                </option>
-              ))}
-            </select>
+            <SearchablePartSelect parts={parts} name="requestPartId" />
           </div>
           <div className="w-28">
             <label className="label">Qty</label>
