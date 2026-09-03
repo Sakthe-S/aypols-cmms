@@ -20,6 +20,8 @@ export default function PmReminderView({
   now: Date;
 }) {
   const [priority, setPriority] = useState<'high' | 'low' | 'all'>('all');
+  const [showAll, setShowAll] = useState(false);
+  const INITIAL_COUNT = 10;
 
   const withDate = schedules.filter((s) => s.nextDueDate);
   const sorted = [...withDate].sort(
@@ -37,6 +39,9 @@ export default function PmReminderView({
     if (priority === 'low') return !r.overdue;
     return true;
   });
+
+  const visible = showAll ? filtered : filtered.slice(0, INITIAL_COUNT);
+  const hiddenCount = filtered.length - visible.length;
 
   return (
     <div className="space-y-4">
@@ -65,7 +70,7 @@ export default function PmReminderView({
       )}
 
       <div className="space-y-2">
-        {filtered.map((r) => (
+        {visible.map((r) => (
           <div
             key={r.id}
             className={`flex items-start justify-between gap-3 rounded-lg border p-3 ${r.overdue ? 'border-red-200 bg-red-50' : 'border-yellow-200 bg-yellow-50'}`}
@@ -92,6 +97,16 @@ export default function PmReminderView({
           </div>
         ))}
       </div>
+
+      {hiddenCount > 0 && (
+        <button
+          type="button"
+          onClick={() => setShowAll((v) => !v)}
+          className="w-full rounded-lg border border-gray-200 py-2 text-sm font-medium text-primary-600 hover:bg-primary-50"
+        >
+          {showAll ? `Show fewer (top ${INITIAL_COUNT})` : `Show more (${hiddenCount} more)`}
+        </button>
+      )}
     </div>
   );
 }
