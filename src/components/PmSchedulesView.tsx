@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { formatDate } from '@/lib/utils';
-import { CheckCircle2, Pencil } from 'lucide-react';
+import { CheckCircle2, Pencil, Search } from 'lucide-react';
 import ViewToggle, { type ViewMode } from '@/components/ViewToggle';
 import ConfirmForm from '@/components/ConfirmForm';
 
@@ -38,6 +38,8 @@ export default function PmSchedulesView({
   onDelete: (formData: FormData) => Promise<void>;
 }) {
   const [mode, setMode] = useState<ViewMode>('card');
+  const [query, setQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -58,16 +60,49 @@ export default function PmSchedulesView({
     isOverdue(pm) ? 'bg-red-100 text-red-700' : isDueSoon(pm) ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700';
   const statusLabel = (pm: PmSchedule) => (isOverdue(pm) ? 'Overdue' : isDueSoon(pm) ? 'Due Soon' : 'On Track');
 
+  const normQuery = query.trim().toLowerCase();
+  const filteredSchedules = schedules.filter((pm) => {
+    const matchesQuery =
+      !normQuery ||
+      pm.taskName.toLowerCase().includes(normQuery) ||
+      pm.machine.machineName.toLowerCase().includes(normQuery);
+    const matchesStatus = statusFilter === 'all' || statusLabel(pm) === statusFilter;
+    return matchesQuery && matchesStatus;
+  });
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <p className="text-sm text-gray-500">{schedules.length} active schedules</p>
+        <p className="text-sm text-gray-500">{filteredSchedules.length} of {schedules.length} active schedules</p>
         <ViewToggle mode={mode} onChange={changeMode} />
+      </div>
+
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative flex-1 min-w-[200px]">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search by task or machine..."
+            className="input-field pl-10"
+          />
+        </div>
+        <select
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value)}
+          className="input-field w-auto"
+        >
+          <option value="all">All Status</option>
+          <option value="Overdue">Overdue</option>
+          <option value="Due Soon">Due Soon</option>
+          <option value="On Track">On Track</option>
+        </select>
       </div>
 
       {mode === 'card' ? (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {schedules.map((pm) => (
+          {filteredSchedules.map((pm) => (
             <div key={pm.id} className={`card p-5 ${isOverdue(pm) ? 'border-red-300 bg-red-50' : isDueSoon(pm) ? 'border-yellow-300 bg-yellow-50' : ''}`}>
               <div className="flex items-start justify-between">
                 <div>
@@ -159,7 +194,7 @@ export default function PmSchedulesView({
               )}
             </div>
           ))}
-          {schedules.length === 0 && (
+          {filteredSchedules.length === 0 && (
             <p className="col-span-3 py-8 text-center text-gray-500">No PM schedules configured</p>
           )}
         </div>
@@ -180,7 +215,7 @@ export default function PmSchedulesView({
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {schedules.map((pm) => (
+                {filteredSchedules.map((pm) => (
                   <tr key={pm.id} className="hover:bg-gray-50">
                     <td className="px-6 py-3 font-medium text-gray-900">{pm.taskName}</td>
                     <td className="px-6 py-3">{pm.machine.machineName}</td>
@@ -268,7 +303,7 @@ export default function PmSchedulesView({
                     </td>
                   </tr>
                 ))}
-                {schedules.length === 0 && (
+                {filteredSchedules.length === 0 && (
                   <tr><td colSpan={8} className="px-6 py-8 text-center text-gray-500">No PM schedules configured</td></tr>
                 )}
               </tbody>

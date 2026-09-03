@@ -23,7 +23,7 @@ export default function RequestPartsInput({ parts }: { parts: { id: number; part
           </div>
           <div className="w-28">
             <label className="label">Qty</label>
-            <input type="number" name="requestQty" className="input-field" step="0.01" min="0" defaultValue="" />
+            <input type="number" name="requestQty" className="input-field" step="1" min="1" defaultValue="" />
           </div>
           {rows.length > 1 && (
             <button

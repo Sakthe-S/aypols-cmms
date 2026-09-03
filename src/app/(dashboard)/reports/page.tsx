@@ -1,4 +1,4 @@
-import { query, toCamel } from '@/lib/db';
+import { query, queryOne, toCamel } from '@/lib/db';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { FileText, TrendingUp, BarChart3 } from 'lucide-react';
 
@@ -11,7 +11,9 @@ export default async function ReportsPage() {
             (SELECT COALESCE(SUM(t.total_repair_cost), 0)::float8 FROM maintenance_tickets t
              WHERE t.machine_id = m.id AND t.total_repair_cost IS NOT NULL) AS tickets_total_cost
      FROM machines m
-     ORDER BY m.lifetime_maintenance_cost DESC`
+     WHERE EXISTS (SELECT 1 FROM maintenance_tickets t WHERE t.machine_id = m.id)
+     ORDER BY m.lifetime_maintenance_cost DESC, ticket_count DESC
+     LIMIT 10`
   );
   const machines = machineRows.map(row => {
     const r = toCamel(row) as any;
@@ -21,6 +23,11 @@ export default async function ReportsPage() {
       tickets: [{ totalRepairCost: Number(r.ticketsTotalCost || 0) }],
     };
   });
+
+  const totalMachineRows = await queryOne<{ count: number }>(
+    `SELECT count(*)::int AS count FROM machines`
+  );
+  const totalMachines = Number(totalMachineRows?.count || 0);
 
   const ticketStatsRaw = await query<{ status: string; count: number }>(
     `SELECT status, count(*)::int AS count FROM maintenance_tickets GROUP BY status`
@@ -108,8 +115,8 @@ export default async function ReportsPage() {
           <div className="flex items-center gap-3">
             <div className="rounded-lg bg-orange-50 p-2"><BarChart3 className="h-5 w-5 text-orange-600" /></div>
             <div>
-              <p className="text-xs text-gray-500">Active Machines</p>
-              <p className="text-xl font-bold">{machines.length}</p>
+              <p className="text-xs text-gray-500">Machines</p>
+              <p className="text-xl font-bold">{totalMachines}</p>
             </div>
           </div>
         </div>
@@ -143,7 +150,7 @@ export default async function ReportsPage() {
         {/* Machine-wise Cost */}
         <div className="card">
           <div className="card-header">
-            <h3 className="text-lg font-semibold text-gray-900">Machine-wise Maintenance Cost</h3>
+            <h3 className="text-lg font-semibold text-gray-900">Top 10 High-Maintenance Machines</h3>
           </div>
           <div className="hidden overflow-x-auto md:block">
             <table className="w-full text-sm">

@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { isWhatsAppConfigured, sendWhatsApp } from '@/lib/whatsapp';
 import { ROLES, isAdmin as isAdminRole } from '@/lib/roles';
+import PmReminderView from '@/components/PmReminderView';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,6 +31,7 @@ export default async function SettingsPage({
   const userId = Number((session?.user as any)?.id);
   const userRole = (session?.user as any)?.role;
   const isAdmin = isAdminRole(userRole);
+  const now = new Date();
 
   const currentUserRow = await queryOne<Record<string, unknown>>(
     `SELECT * FROM users WHERE id = $1`,
@@ -191,18 +193,15 @@ export default async function SettingsPage({
     await execute(
       `UPDATE app_config SET
         company_name = $1, company_address = $2, company_phone = $3, company_email = $4,
-        currency = $5, default_labor_rate = $6, default_pm_lead_days = $7, low_stock_threshold = $8,
+        default_pm_lead_days = $5,
         updated_at = NOW()
-       WHERE id = $9`,
+       WHERE id = $6`,
       [
         (formData.get('company_name') as string) || 'Aypols Polymers',
         (formData.get('company_address') as string) || null,
         (formData.get('company_phone') as string) || null,
         (formData.get('company_email') as string) || null,
-        (formData.get('currency') as string) || 'INR',
-        Number(formData.get('default_labor_rate')) || 0,
         Number(formData.get('default_pm_lead_days')) || 7,
-        Number(formData.get('low_stock_threshold')) || 0,
         Number(config.id),
       ]
     );
@@ -481,28 +480,10 @@ export default async function SettingsPage({
                   </div>
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <div>
-                      <label className="label">Currency</label>
-                      <select name="currency" defaultValue={config.currency || 'INR'} className="input-field">
-                        <option value="INR">Indian Rupee (₹)</option>
-                        <option value="USD">US Dollar ($)</option>
-                        <option value="EUR">Euro (€)</option>
-                        <option value="GBP">British Pound (£)</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="label">Default Labor Rate / hr</label>
-                      <input type="number" name="default_labor_rate" defaultValue={config.defaultLaborRate ?? 400} className="input-field" min="0" step="0.01" />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    <div>
                       <label className="label">Default PM Lead Days</label>
                       <input type="number" name="default_pm_lead_days" defaultValue={config.defaultPmLeadDays ?? 7} className="input-field" min="1" max="90" />
                     </div>
-                    <div>
-                      <label className="label">Low Stock Alert Threshold</label>
-                      <input type="number" name="low_stock_threshold" defaultValue={config.lowStockThreshold ?? 0} className="input-field" min="0" />
-                    </div>
+                    <div className="hidden"></div>
                   </div>
                   <button type="submit" className="btn-primary w-full">
                     <Save className="mr-2 h-4 w-4" /> Save Company Settings
@@ -511,6 +492,21 @@ export default async function SettingsPage({
               </div>
             </div>
           )}
+
+          {/* PM Reminder priorities */}
+          <div className="card">
+            <div className="card-header flex items-center gap-2">
+              <Calendar className="h-5 w-5 text-primary-600" />
+              <h2 className="text-lg font-semibold text-gray-900">PM Reminders</h2>
+            </div>
+            <p className="px-6 pt-4 text-sm text-gray-500">
+              View preventive maintenance reminders. High priority (overdue) and low priority (upcoming) can be
+              filtered below.
+            </p>
+            <div className="card-body">
+              <PmReminderView schedules={pmSchedules as any} now={now} />
+            </div>
+          </div>
 
           {/* System Information */}
           <div className="card">
@@ -542,10 +538,6 @@ export default async function SettingsPage({
               <div className="flex justify-between border-b border-gray-100 pb-2">
                 <p className="text-xs text-gray-500">Database</p>
                 <p className="text-sm font-medium">PostgreSQL</p>
-              </div>
-              <div className="flex justify-between border-b border-gray-100 pb-2">
-                <p className="text-xs text-gray-500">Currency</p>
-                <p className="text-sm font-medium">{config.currency || 'INR'}</p>
               </div>
               <div className="flex justify-between">
                 <p className="text-xs text-gray-500">WhatsApp Integration</p>

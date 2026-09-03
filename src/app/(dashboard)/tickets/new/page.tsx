@@ -6,6 +6,7 @@ import { revalidatePath } from 'next/cache';
 import { Camera } from 'lucide-react';
 import TicketPhotoUpload from '@/components/TicketPhotoUpload';
 import RequestPartsInput from '@/components/RequestPartsInput';
+import SearchableMachineSelect from '@/components/SearchableMachineSelect';
 import { saveTicketPhotos } from '@/lib/ticketPhotos';
 
 export const dynamic = 'force-dynamic';
@@ -110,14 +111,7 @@ export default async function NewTicketPage() {
       <form action={createTicket} className="card space-y-6 p-6">
         <div>
           <label className="label">Machine *</label>
-          <select name="machineId" className="input-field" required>
-            <option value="">Select machine</option>
-            {machines.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.machineName} ({m.location})
-              </option>
-            ))}
-          </select>
+          <SearchableMachineSelect machines={machines as any} />
         </div>
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

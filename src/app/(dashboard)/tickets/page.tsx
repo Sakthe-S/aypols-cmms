@@ -57,6 +57,22 @@ export default async function TicketsPage({
     };
   });
 
+  const summary = await query<{ status: string; count: number }>(
+    `SELECT status, count(*)::int AS count FROM maintenance_tickets GROUP BY status`
+  );
+  const summaryCounts: Record<string, number> = {};
+  for (const s of summary) summaryCounts[s.status] = s.count;
+  const totalTickets = tickets.length;
+
+  const SLIDER_STEPS = [
+    { key: 'open', label: 'Open', text: 'text-red-700', bg: 'bg-red-50', border: 'border-red-200' },
+    { key: 'allocated', label: 'Allocated', text: 'text-orange-700', bg: 'bg-orange-50', border: 'border-orange-200' },
+    { key: 'in_progress', label: 'In Progress', text: 'text-blue-700', bg: 'bg-blue-50', border: 'border-blue-200' },
+    { key: 'completed', label: 'Completed', text: 'text-yellow-700', bg: 'bg-yellow-50', border: 'border-yellow-200' },
+    { key: 'verified', label: 'Verified', text: 'text-purple-700', bg: 'bg-purple-50', border: 'border-purple-200' },
+    { key: 'closed', label: 'Closed', text: 'text-green-700', bg: 'bg-green-50', border: 'border-green-200' },
+  ];
+
   async function deleteTicket(formData: FormData) {
     'use server';
     if (userRole !== 'SUPERVISOR' && userRole !== 'ADMIN') return;
@@ -98,6 +114,22 @@ export default async function TicketsPage({
           <Plus className="mr-2 h-4 w-4" />
           Raise Ticket
         </Link>
+      </div>
+
+      {/* Summary stats slider */}
+      <div className="card overflow-hidden">
+        <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto p-4 [scrollbar-width:thin]">
+          <div className="snap-start shrink-0 rounded-lg border border-primary-100 bg-primary-50 p-4 text-center min-w-[130px]">
+            <p className="text-2xl font-bold text-primary-700">{totalTickets}</p>
+            <p className="text-xs text-gray-600">Total Tickets</p>
+          </div>
+          {SLIDER_STEPS.map((s) => (
+            <div key={s.key} className={`snap-start shrink-0 rounded-lg border ${s.border} ${s.bg} p-4 text-center min-w-[130px]`}>
+              <p className={`text-2xl font-bold ${s.text}`}>{summaryCounts[s.key] ?? 0}</p>
+              <p className="text-xs text-gray-600">{s.label}</p>
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* Filters */}
